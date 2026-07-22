@@ -12,10 +12,13 @@ process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
 const app = express();
 const PORT = parseInt(process.env.PORT || '3000', 10);
 
+// ─── 1. GLOBAL MIDDLEWARE ────────────────────────────────────────────────────
 app.use(express.json());
 
 // In-memory store for OTPs (Key: email, Value: { otp, expires })
 const otpStore = new Map<string, { otp: string; expires: number }>();
+
+// ─── 2. API ROUTES ───────────────────────────────────────────────────────────
 
 // Endpoint to send OTP
 app.post('/api/otp/send', async (req, res) => {
@@ -133,17 +136,28 @@ app.post('/api/otp/verify', (req, res) => {
   return res.json({ success: true });
 });
 
-// Vite middleware configuration or production static serving
+// Safety net: catch any unmatched /api/* routes and return a clean JSON 404
+// This prevents API misses from falling through to the SPA catch-all
+app.use('/api/*', (req, res) => {
+  res.status(404).json({ error: `API route not found: ${req.method} ${req.originalUrl}` });
+});
+
+// ─── 3. STATIC FILE SERVING + 4. SPA CATCH-ALL (production only) ────────────
+// Vite dev middleware configuration or production static serving
 async function start() {
   if (process.env.NODE_ENV !== "production") {
+    // Development: use Vite's dev server as middleware (HMR, hot reload)
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: "spa",
     });
     app.use(vite.middlewares);
   } else {
+    // Production: serve pre-built static files from dist/
     const distPath = path.join(process.cwd(), 'dist');
+    // 3. Static assets (JS, CSS, images)
     app.use(express.static(distPath));
+    // 4. Catch-all: return index.html for any non-API route (SPA client-side routing)
     app.get('*', (req, res) => {
       res.sendFile(path.join(distPath, 'index.html'));
     });
