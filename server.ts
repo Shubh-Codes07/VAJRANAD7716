@@ -1,5 +1,6 @@
 import express from 'express';
 import path from 'path';
+import dns from 'dns';
 import nodemailer from 'nodemailer';
 import { createServer as createViteServer } from 'vite';
 import dotenv from 'dotenv';
@@ -59,9 +60,15 @@ app.post('/api/otp/send', async (req, res) => {
   try {
     const transporter = nodemailer.createTransport({
       host: 'smtp.gmail.com',
-      port: 465,
-      secure: true,             // SSL on port 465
-      family: 4,                // Force IPv4 — prevents ENETUNREACH on cloud hosts (Render)
+      port: 587,
+      secure: false,            // false for port 587 (STARTTLS)
+      requireTLS: true,         // Enforce TLS upgrade — more reliable than SSL/465 on Render
+      // Custom lookup forces IPv4-only DNS resolution.
+      // This is the REAL fix for ENETUNREACH on Render — `family: 4` alone does NOT
+      // override the DNS resolver; only a custom lookup function does.
+      lookup: (hostname: string, options: dns.LookupOptions, callback: (err: NodeJS.ErrnoException | null, address: string, family: number) => void) => {
+        dns.lookup(hostname, { ...options, family: 4 }, callback);
+      },
       connectionTimeout: 12000, // 12s connection timeout
       socketTimeout: 20000,     // 20s socket idle timeout
       auth: {
