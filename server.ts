@@ -1,13 +1,14 @@
 import express from 'express';
 import path from 'path';
-import nodemailer from 'nodemailer';
+import { Resend } from 'resend';
 import { createServer as createViteServer } from 'vite';
 import dotenv from 'dotenv';
 
 dotenv.config();
 
-// Globally disable TLS verification for local dev (fixes self-signed certificate issues)
-process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
+// Initialize Resend with API key from environment variable
+// Uses HTTPS (port 443) — bypasses SMTP firewall blocks on cloud hosts like Render
+const resend = new Resend(process.env.RESEND_API_KEY);
 
 const app = express();
 const PORT = parseInt(process.env.PORT || '3000', 10);
@@ -28,57 +29,37 @@ app.post('/api/otp/send', async (req, res) => {
   }
 
   const normalizedEmail = email.trim().toLowerCase();
-  
+
   // Generate a 6-digit OTP
   const otp = Math.floor(100000 + Math.random() * 900000).toString();
-  
+
   // Expiry in 5 minutes
   const expires = Date.now() + 5 * 60 * 1000;
   otpStore.set(normalizedEmail, { otp, expires });
 
   console.log(`Generated OTP for ${normalizedEmail}: ${otp}`);
 
-  // Retrieve SMTP credentials
-  const smtpUser = process.env.SMTP_USER || "swayam2005raje@gmail.com";
-  const smtpPass = process.env.SMTP_PASS || "pqdg wlpa iqnb oxja";
-
-  if (!smtpUser || !smtpPass) {
-    console.warn(`SMTP credentials are not configured. OTP for testing is: ${otp}`);
-    return res.status(200).json({ 
-      success: true, 
-      warning: 'SMTP_NOT_CONFIGURED',
+  // Verify that RESEND_API_KEY is configured
+  if (!process.env.RESEND_API_KEY) {
+    console.warn(`RESEND_API_KEY is not set. OTP for testing: ${otp}`);
+    return res.status(200).json({
+      success: true,
+      warning: 'RESEND_NOT_CONFIGURED',
       otp: otp,
-      message: `SMTP email sending is not configured. For testing/review, please use this OTP code: ${otp}`
+      message: `Email service not configured. For testing, use this OTP code: ${otp}`
     });
   }
 
   try {
-    const transporter = nodemailer.createTransport({
-      // Explicit config instead of `service: 'gmail'` to force IPv4 on cloud hosts
-      // (Render/Railway containers may fail with ENETUNREACH on IPv6 Gmail resolution)
-      host: 'smtp.gmail.com',
-      port: 465,
-      secure: true,         // true for port 465 (SSL), false for port 587 (STARTTLS)
-      family: 4,            // Force IPv4 — prevents ENETUNREACH on IPv6-disabled hosts
-      connectionTimeout: 10000, // 10s to establish connection
-      socketTimeout: 15000,     // 15s for socket inactivity
-      auth: {
-        user: smtpUser,
-        pass: smtpPass,
-      },
-      tls: {
-        rejectUnauthorized: false
-      }
-    });
-
-    const mailOptions = {
-      from: `"Vajranad Dhol Tasha Pathak" <${smtpUser}>`,
-      to: normalizedEmail,
+    // Send via Resend HTTP API (HTTPS port 443) — bypasses SMTP firewall on Render
+    const { error: resendError } = await resend.emails.send({
+      from: 'Vajranad Dhol Tasha Pathak <onboarding@resend.dev>',
+      to: [normalizedEmail],
       subject: 'Vajranad Login/Signup OTP Verification',
       html: `
         <div style="font-family: Arial, sans-serif; max-width: 500px; margin: 0 auto; padding: 20px; border: 3px double #D4AF37; border-radius: 16px; background-color: #FAF6EE; color: #333;">
           <div style="text-align: center; border-bottom: 2px solid #800000; padding-bottom: 15px; margin-bottom: 20px;">
-            <h2 style="color: #800000; margin: 0; font-family: 'Georgia', serif; text-transform: uppercase; letter-spacing: 1px;">वज्रनाद</h2>
+            <h2 style="color: #800000; margin: 0; font-family: 'Georgia', serif; text-transform: uppercase; letter-spacing: 1px;">&#2357;&#2332;&#2381;&#2352;&#2344;&#2366;&#2342;</h2>
             <p style="color: #D4AF37; margin: 5px 0 0 0; font-size: 11px; font-weight: bold; letter-spacing: 2px; text-transform: uppercase;">Dhol Tasha Pathak Belgaum</p>
           </div>
           <p style="font-size: 14px; line-height: 1.5; font-weight: 500;">
@@ -100,17 +81,22 @@ app.post('/api/otp/send', async (req, res) => {
           </div>
         </div>
       `,
-    };
+    });
 
-    await transporter.sendMail(mailOptions);
-    return res.json({ success: true, message: 'OTP sent successfully' });
+    if (resendError) {
+      console.error('Resend API error:', resendError);
+      return res.status(500).json({
+        success: false,
+        error: `Failed to send email: ${resendError.message}`
+      });
+    }
+
+    return res.status(200).json({ success: true, message: 'OTP sent successfully via email.' });
   } catch (error: any) {
-    console.error('Error sending email:', error);
-    return res.status(200).json({ 
-      success: true, 
-      warning: 'SMTP_SEND_FAILED',
-      otp: otp,
-      message: `Failed to send email via SMTP (${error.message}). Please make sure you use a Gmail 'App Password' if utilizing Gmail SMTP, and not your standard account password. For testing, please use this OTP: ${otp}`
+    console.error('Error sending email via Resend:', error);
+    return res.status(500).json({
+      success: false,
+      error: `Failed to send email: ${error.message}`
     });
   }
 });
