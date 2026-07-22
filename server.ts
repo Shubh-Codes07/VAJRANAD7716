@@ -40,77 +40,52 @@ app.post('/api/otp/send', async (req, res) => {
   otpStore.set(normalizedEmail, { otp, expires });
   console.log(`[OTP] Generated OTP for ${normalizedEmail}: ${otp}`);
 
-  // Retrieve Brevo credentials
-  const brevoApiKey = process.env.BREVO_API_KEY;
-  const brevoSenderEmail = process.env.BREVO_SENDER_EMAIL;
+  // Retrieve EmailJS credentials
+  const emailjsServiceId = process.env.EMAILJS_SERVICE_ID;
+  const emailjsTemplateId = process.env.EMAILJS_TEMPLATE_ID;
+  const emailjsPublicKey = process.env.EMAILJS_PUBLIC_KEY;
+  const emailjsPrivateKey = process.env.EMAILJS_PRIVATE_KEY; // Only needed if enabled in EmailJS settings
 
-  if (!brevoApiKey || !brevoSenderEmail) {
-    console.error('[OTP] Brevo credentials are not set in environment variables (BREVO_API_KEY / BREVO_SENDER_EMAIL)');
+  if (!emailjsServiceId || !emailjsTemplateId || !emailjsPublicKey) {
+    console.error('[OTP] EmailJS credentials are not set in environment variables (EMAILJS_SERVICE_ID, EMAILJS_TEMPLATE_ID, EMAILJS_PUBLIC_KEY)');
     return res.status(500).json({
       error: 'Email service is not configured on the server. Please contact the administrator.'
     });
   }
 
-  console.log(`[OTP] Using Brevo Sender: ${brevoSenderEmail}`);
-  console.log(`[OTP] Sending email to ${normalizedEmail} via Brevo API...`);
+  console.log(`[OTP] Sending email to ${normalizedEmail} via EmailJS API...`);
 
   try {
-    const htmlContent = `
-      <div style="font-family: Arial, sans-serif; max-width: 500px; margin: 0 auto; padding: 20px; border: 3px double #D4AF37; border-radius: 16px; background-color: #FAF6EE; color: #333;">
-        <div style="text-align: center; border-bottom: 2px solid #800000; padding-bottom: 15px; margin-bottom: 20px;">
-          <h2 style="color: #800000; margin: 0; font-family: 'Georgia', serif; text-transform: uppercase; letter-spacing: 1px;">वज्रनाद</h2>
-          <p style="color: #D4AF37; margin: 5px 0 0 0; font-size: 11px; font-weight: bold; letter-spacing: 2px; text-transform: uppercase;">Dhol Tasha Pathak Belgaum</p>
-        </div>
-        <p style="font-size: 14px; line-height: 1.5; font-weight: 500;">
-          Hello ${name ? `<strong>${name}</strong>` : 'Member'},
-        </p>
-        <p style="font-size: 14px; line-height: 1.5;">
-          You requested to sign in/register for your Vajranad Dhol Tasha Pathak account. Use the secure One-Time Password (OTP) below to complete your verification:
-        </p>
-        <div style="text-align: center; margin: 30px 0;">
-          <span style="font-size: 32px; font-weight: 800; letter-spacing: 6px; color: #800000; background-color: #FFFDD0; padding: 12px 24px; border-radius: 12px; border: 1px dashed #D4AF37; display: inline-block; font-family: monospace;">
-            ${otp}
-          </span>
-        </div>
-        <p style="font-size: 12px; color: #666; line-height: 1.4; text-align: center; margin-top: 20px;">
-          This OTP is valid for <strong>5 minutes</strong>. If you did not request this, please ignore this email.
-        </p>
-        <div style="text-align: center; border-top: 1px solid #ddd; margin-top: 30px; padding-top: 15px; font-size: 11px; color: #888;">
-          &copy; ${new Date().getFullYear()} Vajranad Dhol Tasha Pathak, Belgaum. All rights reserved.
-        </div>
-      </div>
-    `;
+    const payload = {
+      service_id: emailjsServiceId,
+      template_id: emailjsTemplateId,
+      user_id: emailjsPublicKey,
+      accessToken: emailjsPrivateKey,
+      template_params: {
+        to_email: normalizedEmail,
+        name: name || "Member",
+        otp: otp
+      }
+    };
 
-    const response = await fetch('https://api.brevo.com/v3/smtp/email', {
+    const response = await fetch('https://api.emailjs.com/api/v1.0/email/send', {
       method: 'POST',
       headers: {
-        'Accept': 'application/json',
-        'Content-Type': 'application/json',
-        'api-key': brevoApiKey
+        'Content-Type': 'application/json'
       },
-      body: JSON.stringify({
-        sender: { email: brevoSenderEmail, name: "Vajranad Dhol Tasha Pathak" },
-        to: [{ email: normalizedEmail, name: name || "Member" }],
-        subject: 'Vajranad Login/Signup OTP Verification',
-        htmlContent: htmlContent
-      })
+      body: JSON.stringify(payload)
     });
 
-    let data;
-    try {
-      data = await response.json();
-    } catch (e) {
-      data = null;
-    }
+    const responseText = await response.text();
 
     if (!response.ok) {
-      console.error('[OTP] ✗ Brevo API FAILED:', response.status, data);
+      console.error('[OTP] ✗ EmailJS API FAILED:', response.status, responseText);
       return res.status(500).json({
-        error: `Failed to send OTP email (Brevo error). Please try again or contact support.`
+        error: `Failed to send OTP email (EmailJS error). Please try again or contact support.`
       });
     }
 
-    console.log(`[OTP] ✓ Email sent successfully via Brevo! MessageId: ${data?.messageId || 'unknown'}`);
+    console.log(`[OTP] ✓ Email sent successfully via EmailJS! Response: ${responseText}`);
     return res.status(200).json({ success: true, message: 'OTP sent successfully to your email.' });
 
   } catch (error: any) {
