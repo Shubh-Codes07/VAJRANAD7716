@@ -89,6 +89,10 @@ export default function LoginForm({ onAuthSuccess }: LoginFormProps) {
     }
 
     // Request backend to send a secure 6-digit OTP code to email
+    // AbortController adds a 15s timeout — prevents the UI from hanging forever
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 15000);
+
     try {
       const response = await fetch('/api/otp/send', {
         method: 'POST',
@@ -99,11 +103,23 @@ export default function LoginForm({ onAuthSuccess }: LoginFormProps) {
           email: normEmail,
           name: name.trim(),
         }),
+        signal: controller.signal,
       });
 
-      const data = await response.json();
+      clearTimeout(timeoutId);
+
+      let data: any = {};
+      try {
+        data = await response.json();
+      } catch {
+        // response body was not JSON (e.g. HTML error page from a bad proxy)
+        setError('Unexpected server response. Please try again.');
+        setIsSendingSignupOtp(false);
+        return;
+      }
+
       if (!response.ok || !data.success) {
-        setError(data.error || 'Failed to send verification email. Please check your connection and try again.');
+        setError(data.error || 'Failed to send verification email. Please try again.');
         setIsSendingSignupOtp(false);
         return;
       }
@@ -117,8 +133,14 @@ export default function LoginForm({ onAuthSuccess }: LoginFormProps) {
         setOtpNotice(null);
       }
     } catch (err: any) {
-      console.error('OTP Send error:', err);
-      setError('Error connecting to authentication service. Please try again.');
+      clearTimeout(timeoutId);
+      if (err.name === 'AbortError') {
+        console.error('OTP Send: request timed out after 15s');
+        setError('Request timed out. The server took too long to respond. Please try again.');
+      } else {
+        console.error('OTP Send error:', err);
+        setError('Could not connect to the authentication server. Please check your internet connection and try again.');
+      }
     } finally {
       setIsSendingSignupOtp(false);
     }
