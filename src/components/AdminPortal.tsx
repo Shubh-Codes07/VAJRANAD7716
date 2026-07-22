@@ -5,7 +5,7 @@ import html2canvasSafe from '../services/html2canvasSafe';
 import jsPDF from 'jspdf';
 import { store, calculateAge } from '../services/store';
 import { db } from '../services/firebase';
-import { supabase, uploadGalleryFile } from '../services/supabase';
+import { supabase, uploadGalleryFile, saveCloudBackupToSupabase, deleteCloudBackupFromSupabase, getAllCloudBackupsFromSupabase } from '../services/supabase';
 import { collection, doc, setDoc, deleteDoc, getDocs } from 'firebase/firestore';
 import { Member, AttendanceSession, AttendanceRecord, Notice, GalleryItem, Folder, Instrument, AttendanceType, EventCountdown, PerformanceRequest } from '../types';
 import ReportExporter from './ReportExporter';
@@ -619,15 +619,10 @@ export default function AdminPortal({ adminUser, onLogout }: AdminPortalProps) {
 
   const loadCloudBackups = async () => {
     try {
-      const snap = await getDocs(collection(db, 'cloud_backups'));
-      const list: any[] = [];
-      snap.forEach(doc => {
-        list.push(doc.data());
-      });
-      list.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+      const list = await getAllCloudBackupsFromSupabase();
       setCloudBackups(list);
     } catch (e) {
-      console.warn("Failed to load cloud backups from Firestore:", e);
+      console.warn('[CLOUD BACKUP] Failed to load cloud backups from Supabase:', e);
     }
   };
 
@@ -668,7 +663,7 @@ export default function AdminPortal({ adminUser, onLogout }: AdminPortalProps) {
         createdAt: new Date().toISOString()
       };
 
-      await setDoc(doc(db, 'cloud_backups', backupId), backupDoc);
+      await saveCloudBackupToSupabase(backupDoc);
 
       console.log('[CLOUD BACKUP] Backup uploaded successfully:', downloadURL);
       alert('✓ Success: Secure database backup successfully uploaded and pinned to the Cloud!');
@@ -704,7 +699,7 @@ export default function AdminPortal({ adminUser, onLogout }: AdminPortalProps) {
   const handleDeleteCloudBackup = async (id: string) => {
     if (!window.confirm("Are you sure you want to delete this cloud backup record?")) return;
     try {
-      await deleteDoc(doc(db, 'cloud_backups', id));
+      await deleteCloudBackupFromSupabase(id);
       alert('Backup deleted successfully from Cloud Registry.');
       loadCloudBackups();
     } catch (err: any) {

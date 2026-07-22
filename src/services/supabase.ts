@@ -1,5 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
-import type { Member } from '../types';
+import type { Member, AttendanceSession, AttendanceRecord, Notice, GalleryItem, Folder, EventCountdown, PerformanceRequest } from '../types';
 
 const supabaseUrl = (import.meta as any).env.VITE_SUPABASE_URL as string;
 const supabaseAnonKey = (import.meta as any).env.VITE_SUPABASE_ANON_KEY as string;
@@ -243,4 +243,279 @@ export async function deleteMemberFromSupabase(memberId: string): Promise<void> 
   } else {
     console.log(`[SUPABASE DELETE] ✓ Member ${memberId} deleted from Supabase.`);
   }
+}
+
+// ─────────────────────────────────────────────────────────────
+// DATABASE: Sessions
+// ─────────────────────────────────────────────────────────────
+
+export async function saveSessionToSupabase(s: AttendanceSession): Promise<void> {
+  console.log(`[SUPABASE SAVE] Session "${s.title}" (${s.type}) on ${s.date}`);
+  const { error } = await supabase.from('sessions').upsert({
+    id: s.id, type: s.type, title: s.title, date: s.date,
+    day: s.day, is_active: s.isActive, created_by: s.createdBy,
+  }, { onConflict: 'id' });
+  if (error) console.error('[SUPABASE SAVE] ✗ Session save failed:', error.message);
+  else console.log('[SUPABASE SAVE] ✓ Session saved.');
+}
+
+export async function deleteSessionFromSupabase(id: string): Promise<void> {
+  const { error } = await supabase.from('sessions').delete().eq('id', id);
+  if (error) console.error(`[SUPABASE DELETE] ✗ Session ${id}:`, error.message);
+  else console.log(`[SUPABASE DELETE] ✓ Session ${id} deleted.`);
+}
+
+export async function getAllSessionsFromSupabase(): Promise<AttendanceSession[]> {
+  console.log('[SUPABASE READ] Fetching all sessions...');
+  const { data, error } = await supabase.from('sessions').select('*').order('date', { ascending: false });
+  if (error) { console.error('[SUPABASE READ] ✗ Sessions:', error.message); return []; }
+  const rows = (data ?? []).map((r: any): AttendanceSession => ({
+    id: r.id, type: r.type, title: r.title, date: r.date,
+    day: r.day, isActive: r.is_active, createdBy: r.created_by,
+  }));
+  console.log(`[SUPABASE READ] ✓ Fetched ${rows.length} session(s).`);
+  return rows;
+}
+
+// ─────────────────────────────────────────────────────────────
+// DATABASE: Attendance Records
+// ─────────────────────────────────────────────────────────────
+
+export async function saveRecordToSupabase(r: AttendanceRecord): Promise<void> {
+  console.log(`[SUPABASE SAVE] Record: ${r.memberName} @ session ${r.sessionId}`);
+  const { error } = await supabase.from('records').upsert({
+    id: r.id, session_id: r.sessionId, member_id: r.memberId,
+    member_name: r.memberName, instrument: r.instrument,
+    scan_time: r.scanTime, scanned_by: r.scannedBy,
+    type: r.type, date: r.date,
+  }, { onConflict: 'id' });
+  if (error) console.error('[SUPABASE SAVE] ✗ Record save failed:', error.message);
+  else console.log('[SUPABASE SAVE] ✓ Record saved.');
+}
+
+export async function deleteRecordFromSupabase(id: string): Promise<void> {
+  const { error } = await supabase.from('records').delete().eq('id', id);
+  if (error) console.error(`[SUPABASE DELETE] ✗ Record ${id}:`, error.message);
+}
+
+export async function deleteRecordsBySessionFromSupabase(sessionId: string): Promise<void> {
+  const { error } = await supabase.from('records').delete().eq('session_id', sessionId);
+  if (error) console.error(`[SUPABASE DELETE] ✗ Records for session ${sessionId}:`, error.message);
+  else console.log(`[SUPABASE DELETE] ✓ Records for session ${sessionId} deleted.`);
+}
+
+export async function getAllRecordsFromSupabase(): Promise<AttendanceRecord[]> {
+  console.log('[SUPABASE READ] Fetching all records...');
+  const { data, error } = await supabase.from('records').select('*').order('date', { ascending: false });
+  if (error) { console.error('[SUPABASE READ] ✗ Records:', error.message); return []; }
+  const rows = (data ?? []).map((r: any): AttendanceRecord => ({
+    id: r.id, sessionId: r.session_id, memberId: r.member_id,
+    memberName: r.member_name, instrument: r.instrument,
+    scanTime: r.scan_time, scannedBy: r.scanned_by, type: r.type, date: r.date,
+  }));
+  console.log(`[SUPABASE READ] ✓ Fetched ${rows.length} record(s).`);
+  return rows;
+}
+
+// ─────────────────────────────────────────────────────────────
+// DATABASE: Notices
+// ─────────────────────────────────────────────────────────────
+
+export async function saveNoticeToSupabase(n: Notice): Promise<void> {
+  console.log(`[SUPABASE SAVE] Notice "${n.title}"`);
+  const { error } = await supabase.from('notices').upsert({
+    id: n.id, title: n.title, content: n.content,
+    date: n.date, type: n.type, folder_id: n.folderId ?? null,
+  }, { onConflict: 'id' });
+  if (error) console.error('[SUPABASE SAVE] ✗ Notice save failed:', error.message);
+  else console.log('[SUPABASE SAVE] ✓ Notice saved.');
+}
+
+export async function deleteNoticeFromSupabase(id: string): Promise<void> {
+  const { error } = await supabase.from('notices').delete().eq('id', id);
+  if (error) console.error(`[SUPABASE DELETE] ✗ Notice ${id}:`, error.message);
+  else console.log(`[SUPABASE DELETE] ✓ Notice ${id} deleted.`);
+}
+
+export async function deleteNoticesByFolderFromSupabase(folderId: string): Promise<void> {
+  const { error } = await supabase.from('notices').delete().eq('folder_id', folderId);
+  if (error) console.error(`[SUPABASE DELETE] ✗ Notices for folder ${folderId}:`, error.message);
+}
+
+export async function getAllNoticesFromSupabase(): Promise<Notice[]> {
+  console.log('[SUPABASE READ] Fetching all notices...');
+  const { data, error } = await supabase.from('notices').select('*').order('date', { ascending: false });
+  if (error) { console.error('[SUPABASE READ] ✗ Notices:', error.message); return []; }
+  const rows = (data ?? []).map((r: any): Notice => ({
+    id: r.id, title: r.title, content: r.content,
+    date: r.date, type: r.type, folderId: r.folder_id ?? undefined,
+  }));
+  console.log(`[SUPABASE READ] ✓ Fetched ${rows.length} notice(s).`);
+  return rows;
+}
+
+// ─────────────────────────────────────────────────────────────
+// DATABASE: Gallery
+// ─────────────────────────────────────────────────────────────
+
+export async function saveGalleryItemToSupabase(g: GalleryItem): Promise<void> {
+  console.log(`[SUPABASE SAVE] Gallery item "${g.title}" (${g.type})`);
+  const { error } = await supabase.from('gallery').upsert({
+    id: g.id, url: g.url, type: g.type,
+    title: g.title, folder_id: g.folderId ?? null,
+  }, { onConflict: 'id' });
+  if (error) console.error('[SUPABASE SAVE] ✗ Gallery item save failed:', error.message);
+  else console.log('[SUPABASE SAVE] ✓ Gallery item saved.');
+}
+
+export async function deleteGalleryItemFromSupabase(id: string): Promise<void> {
+  const { error } = await supabase.from('gallery').delete().eq('id', id);
+  if (error) console.error(`[SUPABASE DELETE] ✗ Gallery ${id}:`, error.message);
+  else console.log(`[SUPABASE DELETE] ✓ Gallery item ${id} deleted.`);
+}
+
+export async function deleteGalleryByFolderFromSupabase(folderId: string): Promise<void> {
+  const { error } = await supabase.from('gallery').delete().eq('folder_id', folderId);
+  if (error) console.error(`[SUPABASE DELETE] ✗ Gallery for folder ${folderId}:`, error.message);
+}
+
+export async function getAllGalleryFromSupabase(): Promise<GalleryItem[]> {
+  console.log('[SUPABASE READ] Fetching all gallery items...');
+  const { data, error } = await supabase.from('gallery').select('*').order('created_at', { ascending: false });
+  if (error) { console.error('[SUPABASE READ] ✗ Gallery:', error.message); return []; }
+  const rows = (data ?? []).map((r: any): GalleryItem => ({
+    id: r.id, url: r.url, type: r.type,
+    title: r.title, folderId: r.folder_id ?? undefined,
+  }));
+  console.log(`[SUPABASE READ] ✓ Fetched ${rows.length} gallery item(s).`);
+  return rows;
+}
+
+// ─────────────────────────────────────────────────────────────
+// DATABASE: Folders
+// ─────────────────────────────────────────────────────────────
+
+export async function saveFolderToSupabase(f: Folder): Promise<void> {
+  console.log(`[SUPABASE SAVE] Folder "${f.name}"`);
+  const { error } = await supabase.from('folders').upsert({
+    id: f.id, name: f.name, description: f.description ?? null,
+    created_at: f.createdAt,
+  }, { onConflict: 'id' });
+  if (error) console.error('[SUPABASE SAVE] ✗ Folder save failed:', error.message);
+  else console.log('[SUPABASE SAVE] ✓ Folder saved.');
+}
+
+export async function deleteFolderFromSupabase(id: string): Promise<void> {
+  const { error } = await supabase.from('folders').delete().eq('id', id);
+  if (error) console.error(`[SUPABASE DELETE] ✗ Folder ${id}:`, error.message);
+  else console.log(`[SUPABASE DELETE] ✓ Folder ${id} deleted.`);
+}
+
+export async function getAllFoldersFromSupabase(): Promise<Folder[]> {
+  console.log('[SUPABASE READ] Fetching all folders...');
+  const { data, error } = await supabase.from('folders').select('*').order('created_at', { ascending: true });
+  if (error) { console.error('[SUPABASE READ] ✗ Folders:', error.message); return []; }
+  const rows = (data ?? []).map((r: any): Folder => ({
+    id: r.id, name: r.name,
+    description: r.description ?? undefined, createdAt: r.created_at,
+  }));
+  console.log(`[SUPABASE READ] ✓ Fetched ${rows.length} folder(s).`);
+  return rows;
+}
+
+// ─────────────────────────────────────────────────────────────
+// DATABASE: Countdowns
+// ─────────────────────────────────────────────────────────────
+
+export async function saveCountdownToSupabase(c: EventCountdown): Promise<void> {
+  console.log(`[SUPABASE SAVE] Countdown "${c.heading}" on ${c.date}`);
+  const { error } = await supabase.from('countdowns').upsert({
+    id: c.id, heading: c.heading, date: c.date,
+    is_active: c.isActive, created_at: c.createdAt,
+  }, { onConflict: 'id' });
+  if (error) console.error('[SUPABASE SAVE] ✗ Countdown save failed:', error.message);
+  else console.log('[SUPABASE SAVE] ✓ Countdown saved.');
+}
+
+export async function deleteCountdownFromSupabase(id: string): Promise<void> {
+  const { error } = await supabase.from('countdowns').delete().eq('id', id);
+  if (error) console.error(`[SUPABASE DELETE] ✗ Countdown ${id}:`, error.message);
+  else console.log(`[SUPABASE DELETE] ✓ Countdown ${id} deleted.`);
+}
+
+export async function getAllCountdownsFromSupabase(): Promise<EventCountdown[]> {
+  console.log('[SUPABASE READ] Fetching all countdowns...');
+  const { data, error } = await supabase.from('countdowns').select('*').order('created_at', { ascending: false });
+  if (error) { console.error('[SUPABASE READ] ✗ Countdowns:', error.message); return []; }
+  const rows = (data ?? []).map((r: any): EventCountdown => ({
+    id: r.id, heading: r.heading, date: r.date,
+    isActive: r.is_active, createdAt: r.created_at,
+  }));
+  console.log(`[SUPABASE READ] ✓ Fetched ${rows.length} countdown(s).`);
+  return rows;
+}
+
+// ─────────────────────────────────────────────────────────────
+// DATABASE: Performance Requests (Callouts / RSVP Polls)
+// ─────────────────────────────────────────────────────────────
+
+export async function savePerformanceRequestToSupabase(p: PerformanceRequest): Promise<void> {
+  console.log(`[SUPABASE SAVE] Performance request "${p.title}" on ${p.date}`);
+  const { error } = await supabase.from('performance_requests').upsert({
+    id: p.id, title: p.title, date: p.date, time: p.time,
+    location: p.location, description: p.description ?? null,
+    is_active: p.isActive, responses: p.responses ?? {},
+    expiry_hours: p.expiryHours ?? 48, created_at: p.createdAt,
+  }, { onConflict: 'id' });
+  if (error) console.error('[SUPABASE SAVE] ✗ Performance request save failed:', error.message);
+  else console.log('[SUPABASE SAVE] ✓ Performance request saved.');
+}
+
+export async function deletePerformanceRequestFromSupabase(id: string): Promise<void> {
+  const { error } = await supabase.from('performance_requests').delete().eq('id', id);
+  if (error) console.error(`[SUPABASE DELETE] ✗ PR ${id}:`, error.message);
+  else console.log(`[SUPABASE DELETE] ✓ Performance request ${id} deleted.`);
+}
+
+export async function getAllPerformanceRequestsFromSupabase(): Promise<PerformanceRequest[]> {
+  console.log('[SUPABASE READ] Fetching all performance requests...');
+  const { data, error } = await supabase.from('performance_requests').select('*').order('created_at', { ascending: false });
+  if (error) { console.error('[SUPABASE READ] ✗ Performance requests:', error.message); return []; }
+  const rows = (data ?? []).map((r: any): PerformanceRequest => ({
+    id: r.id, title: r.title, date: r.date, time: r.time,
+    location: r.location, description: r.description ?? undefined,
+    isActive: r.is_active, responses: r.responses ?? {},
+    expiryHours: r.expiry_hours ?? 48, createdAt: r.created_at,
+  }));
+  console.log(`[SUPABASE READ] ✓ Fetched ${rows.length} performance request(s).`);
+  return rows;
+}
+
+// ─────────────────────────────────────────────────────────────
+// DATABASE: Cloud Backups (Admin)
+// ─────────────────────────────────────────────────────────────
+
+export async function saveCloudBackupToSupabase(backup: { id: string; name: string; url: string; size: string; createdAt: string }): Promise<void> {
+  console.log(`[SUPABASE SAVE] Cloud backup "${backup.name}"`);
+  const { error } = await supabase.from('cloud_backups').upsert({
+    id: backup.id, name: backup.name, url: backup.url,
+    size: backup.size, created_at: backup.createdAt,
+  }, { onConflict: 'id' });
+  if (error) console.error('[SUPABASE SAVE] ✗ Cloud backup save failed:', error.message);
+  else console.log('[SUPABASE SAVE] ✓ Cloud backup saved.');
+}
+
+export async function deleteCloudBackupFromSupabase(id: string): Promise<void> {
+  const { error } = await supabase.from('cloud_backups').delete().eq('id', id);
+  if (error) console.error(`[SUPABASE DELETE] ✗ Cloud backup ${id}:`, error.message);
+  else console.log(`[SUPABASE DELETE] ✓ Cloud backup ${id} deleted.`);
+}
+
+export async function getAllCloudBackupsFromSupabase(): Promise<any[]> {
+  console.log('[SUPABASE READ] Fetching cloud backups...');
+  const { data, error } = await supabase.from('cloud_backups').select('*').order('created_at', { ascending: false });
+  if (error) { console.error('[SUPABASE READ] ✗ Cloud backups:', error.message); return []; }
+  return (data ?? []).map((r: any) => ({
+    id: r.id, name: r.name, url: r.url, size: r.size, createdAt: r.created_at,
+  }));
 }

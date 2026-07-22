@@ -1,7 +1,16 @@
 import { Member, AttendanceSession, AttendanceRecord, Notice, GalleryItem, Folder, Instrument, Gender, BloodGroup, AttendanceType, EventCountdown, PerformanceRequest } from '../types';
 import { db, handleFirestoreError, OperationType, cleanObjectForFirestore } from './firebase';
 import { collection, doc, setDoc, deleteDoc, getDocs } from 'firebase/firestore';
-import { saveMemberToSupabase, deleteMemberFromSupabase, getAllMembersFromSupabase } from './supabase';
+import {
+  saveMemberToSupabase, deleteMemberFromSupabase, getAllMembersFromSupabase,
+  saveSessionToSupabase, deleteSessionFromSupabase, getAllSessionsFromSupabase,
+  saveRecordToSupabase, deleteRecordFromSupabase, deleteRecordsBySessionFromSupabase, getAllRecordsFromSupabase,
+  saveNoticeToSupabase, deleteNoticeFromSupabase, deleteNoticesByFolderFromSupabase, getAllNoticesFromSupabase,
+  saveGalleryItemToSupabase, deleteGalleryItemFromSupabase, deleteGalleryByFolderFromSupabase, getAllGalleryFromSupabase,
+  saveFolderToSupabase, deleteFolderFromSupabase, getAllFoldersFromSupabase,
+  saveCountdownToSupabase, deleteCountdownFromSupabase, getAllCountdownsFromSupabase,
+  savePerformanceRequestToSupabase, deletePerformanceRequestFromSupabase, getAllPerformanceRequestsFromSupabase,
+} from './supabase';
 
 // Safe wrapper for localStorage.setItem to completely prevent QuotaExceededError crashes
 try {
@@ -58,20 +67,12 @@ class VajranadStore {
   }
 
   // --- Firestore Persistence Helpers ---
-  private async saveFolderToFirestore(f: Folder) {
-    try {
-      await setDoc(doc(db, 'folders', f.id), cleanObjectForFirestore(f));
-    } catch (e) {
-      handleFirestoreError(e, OperationType.WRITE, `folders/${f.id}`);
-    }
+  private saveFolderToFirestore(f: Folder) {
+    saveFolderToSupabase(f);
   }
 
-  private async deleteFolderFromFirestore(id: string) {
-    try {
-      await deleteDoc(doc(db, 'folders', id));
-    } catch (e) {
-      handleFirestoreError(e, OperationType.DELETE, `folders/${id}`);
-    }
+  private deleteFolderFromFirestore(id: string) {
+    deleteFolderFromSupabase(id);
   }
 
   // Members are now persisted to Supabase (not Firestore).
@@ -84,84 +85,44 @@ class VajranadStore {
     deleteMemberFromSupabase(id); // fire-and-forget
   }
 
-  private async deleteSessionFromFirestore(id: string) {
-    try {
-      await deleteDoc(doc(db, 'sessions', id));
-    } catch (e) {
-      handleFirestoreError(e, OperationType.DELETE, `sessions/${id}`);
-    }
+  private deleteSessionFromFirestore(id: string) {
+    deleteSessionFromSupabase(id);
   }
 
-  private async deleteRecordFromFirestore(id: string) {
-    try {
-      await deleteDoc(doc(db, 'records', id));
-    } catch (e) {
-      handleFirestoreError(e, OperationType.DELETE, `records/${id}`);
-    }
+  private deleteRecordFromFirestore(id: string) {
+    deleteRecordFromSupabase(id);
   }
 
-  private async saveSessionToFirestore(s: AttendanceSession) {
-    try {
-      await setDoc(doc(db, 'sessions', s.id), cleanObjectForFirestore(s));
-    } catch (e) {
-      handleFirestoreError(e, OperationType.WRITE, `sessions/${s.id}`);
-    }
+  private saveSessionToFirestore(s: AttendanceSession) {
+    saveSessionToSupabase(s);
   }
 
-  private async saveRecordToFirestore(r: AttendanceRecord) {
-    try {
-      await setDoc(doc(db, 'records', r.id), cleanObjectForFirestore(r));
-    } catch (e) {
-      handleFirestoreError(e, OperationType.WRITE, `records/${r.id}`);
-    }
+  private saveRecordToFirestore(r: AttendanceRecord) {
+    saveRecordToSupabase(r);
   }
 
-  private async saveNoticeToFirestore(n: Notice) {
-    try {
-      await setDoc(doc(db, 'notices', n.id), cleanObjectForFirestore(n));
-    } catch (e) {
-      handleFirestoreError(e, OperationType.WRITE, `notices/${n.id}`);
-    }
+  private saveNoticeToFirestore(n: Notice) {
+    saveNoticeToSupabase(n);
   }
 
-  private async deleteNoticeFromFirestore(id: string) {
-    try {
-      await deleteDoc(doc(db, 'notices', id));
-    } catch (e) {
-      handleFirestoreError(e, OperationType.DELETE, `notices/${id}`);
-    }
+  private deleteNoticeFromFirestore(id: string) {
+    deleteNoticeFromSupabase(id);
   }
 
-  private async saveGalleryToFirestore(g: GalleryItem) {
-    try {
-      await setDoc(doc(db, 'gallery', g.id), cleanObjectForFirestore(g));
-    } catch (e) {
-      handleFirestoreError(e, OperationType.WRITE, `gallery/${g.id}`);
-    }
+  private saveGalleryToFirestore(g: GalleryItem) {
+    saveGalleryItemToSupabase(g);
   }
 
-  private async deleteGalleryFromFirestore(id: string) {
-    try {
-      await deleteDoc(doc(db, 'gallery', id));
-    } catch (e) {
-      handleFirestoreError(e, OperationType.DELETE, `gallery/${id}`);
-    }
+  private deleteGalleryFromFirestore(id: string) {
+    deleteGalleryItemFromSupabase(id);
   }
 
-  private async saveCountdownToFirestore(c: EventCountdown) {
-    try {
-      await setDoc(doc(db, 'countdowns', c.id), cleanObjectForFirestore(c));
-    } catch (e) {
-      handleFirestoreError(e, OperationType.WRITE, `countdowns/${c.id}`);
-    }
+  private saveCountdownToFirestore(c: EventCountdown) {
+    saveCountdownToSupabase(c);
   }
 
-  private async deleteCountdownFromFirestore(id: string) {
-    try {
-      await deleteDoc(doc(db, 'countdowns', id));
-    } catch (e) {
-      handleFirestoreError(e, OperationType.DELETE, `countdowns/${id}`);
-    }
+  private deleteCountdownFromFirestore(id: string) {
+    deleteCountdownFromSupabase(id);
   }
 
   public async syncFromFirestore() {
@@ -182,150 +143,77 @@ class VajranadStore {
         }
       }
 
-      // 2. Sessions
-      const sessionsSnap = await getDocs(collection(db, 'sessions')).catch(err => {
-        handleFirestoreError(err, OperationType.LIST, 'sessions');
-        throw err;
-      });
-      const remoteSessions: AttendanceSession[] = [];
-      sessionsSnap.forEach(doc => {
-        remoteSessions.push(doc.data() as AttendanceSession);
-      });
+      // 2. Sessions — read from Supabase
+      const remoteSessions = await getAllSessionsFromSupabase();
       if (remoteSessions.length > 0) {
         localStorage.setItem(this.sessionsKey, JSON.stringify(remoteSessions));
+        console.log(`[STORE] Synced ${remoteSessions.length} session(s) from Supabase.`);
       } else {
         const localSessions = this.getSessions();
-        for (const s of localSessions) {
-          await setDoc(doc(db, 'sessions', s.id), cleanObjectForFirestore(s)).catch(err => {
-            handleFirestoreError(err, OperationType.CREATE, `sessions/${s.id}`);
-          });
-        }
+        for (const s of localSessions) await saveSessionToSupabase(s);
       }
 
-      // 3. Records
-      const recordsSnap = await getDocs(collection(db, 'records')).catch(err => {
-        handleFirestoreError(err, OperationType.LIST, 'records');
-        throw err;
-      });
-      const remoteRecords: AttendanceRecord[] = [];
-      recordsSnap.forEach(doc => {
-        remoteRecords.push(doc.data() as AttendanceRecord);
-      });
+      // 3. Records — read from Supabase
+      const remoteRecords = await getAllRecordsFromSupabase();
       if (remoteRecords.length > 0) {
         localStorage.setItem(this.recordsKey, JSON.stringify(remoteRecords));
+        console.log(`[STORE] Synced ${remoteRecords.length} record(s) from Supabase.`);
       } else {
         const localRecords = this.getAttendanceRecords();
-        for (const r of localRecords) {
-          await setDoc(doc(db, 'records', r.id), cleanObjectForFirestore(r)).catch(err => {
-            handleFirestoreError(err, OperationType.CREATE, `records/${r.id}`);
-          });
-        }
+        for (const r of localRecords) await saveRecordToSupabase(r);
       }
 
-      // 4. Notices
-      const noticesSnap = await getDocs(collection(db, 'notices')).catch(err => {
-        handleFirestoreError(err, OperationType.LIST, 'notices');
-        throw err;
-      });
-      const remoteNotices: Notice[] = [];
-      noticesSnap.forEach(doc => {
-        remoteNotices.push(doc.data() as Notice);
-      });
+      // 4. Notices — read from Supabase
+      const remoteNotices = await getAllNoticesFromSupabase();
       if (remoteNotices.length > 0) {
         localStorage.setItem(this.noticesKey, JSON.stringify(remoteNotices));
+        console.log(`[STORE] Synced ${remoteNotices.length} notice(s) from Supabase.`);
       } else {
         const localNotices = this.getNotices();
-        for (const n of localNotices) {
-          await setDoc(doc(db, 'notices', n.id), cleanObjectForFirestore(n)).catch(err => {
-            handleFirestoreError(err, OperationType.CREATE, `notices/${n.id}`);
-          });
-        }
+        for (const n of localNotices) await saveNoticeToSupabase(n);
       }
 
-      // 5. Gallery
-      const gallerySnap = await getDocs(collection(db, 'gallery')).catch(err => {
-        handleFirestoreError(err, OperationType.LIST, 'gallery');
-        throw err;
-      });
-      const remoteGallery: GalleryItem[] = [];
-      gallerySnap.forEach(doc => {
-        remoteGallery.push(doc.data() as GalleryItem);
-      });
+      // 5. Gallery — read from Supabase
+      const remoteGallery = await getAllGalleryFromSupabase();
       if (remoteGallery.length > 0) {
         localStorage.setItem(this.galleryKey, JSON.stringify(remoteGallery));
+        console.log(`[STORE] Synced ${remoteGallery.length} gallery item(s) from Supabase.`);
       } else {
         const localGallery = this.getGalleryItems();
-        for (const g of localGallery) {
-          await setDoc(doc(db, 'gallery', g.id), cleanObjectForFirestore(g)).catch(err => {
-            handleFirestoreError(err, OperationType.CREATE, `gallery/${g.id}`);
-          });
-        }
+        for (const g of localGallery) await saveGalleryItemToSupabase(g);
       }
 
-      // 6. Folders
-      const foldersSnap = await getDocs(collection(db, 'folders')).catch(err => {
-        handleFirestoreError(err, OperationType.LIST, 'folders');
-        throw err;
-      });
-      const remoteFolders: Folder[] = [];
-      foldersSnap.forEach(doc => {
-        remoteFolders.push(doc.data() as Folder);
-      });
+      // 6. Folders — read from Supabase
+      const remoteFolders = await getAllFoldersFromSupabase();
       if (remoteFolders.length > 0) {
         localStorage.setItem(this.foldersKey, JSON.stringify(remoteFolders));
+        console.log(`[STORE] Synced ${remoteFolders.length} folder(s) from Supabase.`);
       } else {
         const localFolders = this.getFolders();
-        for (const f of localFolders) {
-          await setDoc(doc(db, 'folders', f.id), cleanObjectForFirestore(f)).catch(err => {
-            handleFirestoreError(err, OperationType.CREATE, `folders/${f.id}`);
-          });
-        }
+        for (const f of localFolders) await saveFolderToSupabase(f);
       }
 
-      // 7. Countdowns
-      const countdownsSnap = await getDocs(collection(db, 'countdowns')).catch(err => {
-        handleFirestoreError(err, OperationType.LIST, 'countdowns');
-        throw err;
-      });
-      const remoteCountdowns: EventCountdown[] = [];
-      countdownsSnap.forEach(doc => {
-        remoteCountdowns.push(doc.data() as EventCountdown);
-      });
+      // 7. Countdowns — read from Supabase
+      const remoteCountdowns = await getAllCountdownsFromSupabase();
       if (remoteCountdowns.length > 0) {
         localStorage.setItem(this.countdownsKey, JSON.stringify(remoteCountdowns));
+        console.log(`[STORE] Synced ${remoteCountdowns.length} countdown(s) from Supabase.`);
       } else {
         const localCountdowns = this.getCountdowns();
-        for (const c of localCountdowns) {
-          await setDoc(doc(db, 'countdowns', c.id), cleanObjectForFirestore(c)).catch(err => {
-            handleFirestoreError(err, OperationType.CREATE, `countdowns/${c.id}`);
-          });
-        }
+        for (const c of localCountdowns) await saveCountdownToSupabase(c);
       }
 
-      // 8. Performance Requests
-      const performanceRequestsSnap = await getDocs(collection(db, 'performance_requests')).catch(err => {
-        // If collection doesn't exist or permissions aren't set up yet, continue gracefully
-        console.warn("Performance requests Firestore fetch failed or skipped", err);
-        return null;
-      });
-      if (performanceRequestsSnap) {
-        const remotePerformanceRequests: PerformanceRequest[] = [];
-        performanceRequestsSnap.forEach(doc => {
-          remotePerformanceRequests.push(doc.data() as PerformanceRequest);
-        });
-        if (remotePerformanceRequests.length > 0) {
-          localStorage.setItem(this.performanceRequestsKey, JSON.stringify(remotePerformanceRequests));
-        } else {
-          const localPerformanceRequests = this.getPerformanceRequests();
-          for (const pr of localPerformanceRequests) {
-            await setDoc(doc(db, 'performance_requests', pr.id), cleanObjectForFirestore(pr)).catch(err => {
-              console.warn("Error seeding performance request:", err);
-            });
-          }
-        }
+      // 8. Performance Requests — read from Supabase
+      const remotePerformanceRequests = await getAllPerformanceRequestsFromSupabase();
+      if (remotePerformanceRequests.length > 0) {
+        localStorage.setItem(this.performanceRequestsKey, JSON.stringify(remotePerformanceRequests));
+        console.log(`[STORE] Synced ${remotePerformanceRequests.length} performance request(s) from Supabase.`);
+      } else {
+        const localPerformanceRequests = this.getPerformanceRequests();
+        for (const pr of localPerformanceRequests) await savePerformanceRequestToSupabase(pr);
       }
 
-      console.log("Firestore sync completed successfully!");
+      console.log('[STORE] ✓ Full Supabase sync completed successfully!');
     } catch (e: any) {
       const errMsg = e instanceof Error ? e.message : String(e);
       if (errMsg.toLowerCase().includes('permission') || errMsg.toLowerCase().includes('insufficient')) {
@@ -748,17 +636,15 @@ class VajranadStore {
     let sessions = this.getSessions();
     sessions = sessions.filter(s => s.id !== id);
     localStorage.setItem(this.sessionsKey, JSON.stringify(sessions));
-    this.deleteSessionFromFirestore(id);
+    deleteSessionFromSupabase(id);
 
-    // Also delete any associated attendance records
+    // Also delete any associated attendance records from Supabase
     let records = this.getAttendanceRecords();
     const recordsToDelete = records.filter(r => r.sessionId === id);
     records = records.filter(r => r.sessionId !== id);
     localStorage.setItem(this.recordsKey, JSON.stringify(records));
-
-    recordsToDelete.forEach(rec => {
-      this.deleteRecordFromFirestore(rec.id);
-    });
+    recordsToDelete.forEach(rec => deleteRecordFromSupabase(rec.id));
+    deleteRecordsBySessionFromSupabase(id); // batch delete
   }
 
   public formatTo12Hour(timeStr: string): string {
@@ -961,18 +847,20 @@ class VajranadStore {
     localStorage.setItem(this.foldersKey, JSON.stringify(folders));
     this.deleteFolderFromFirestore(id);
 
-    // Also delete any notices and gallery items linked to this folder
+    // Also delete any notices and gallery items linked to this folder from Supabase
     let notices = this.getNotices();
     const noticesToDelete = notices.filter(n => n.folderId === id);
     notices = notices.filter(n => n.folderId !== id);
     localStorage.setItem(this.noticesKey, JSON.stringify(notices));
     noticesToDelete.forEach(n => this.deleteNoticeFromFirestore(n.id));
+    deleteNoticesByFolderFromSupabase(id); // batch delete
 
     let gallery = this.getGalleryItems();
     const galleryToDelete = gallery.filter(g => g.folderId === id);
     gallery = gallery.filter(g => g.folderId !== id);
     localStorage.setItem(this.galleryKey, JSON.stringify(gallery));
     galleryToDelete.forEach(g => this.deleteGalleryFromFirestore(g.id));
+    deleteGalleryByFolderFromSupabase(id); // batch delete
   }
 
   // --- Countdowns API ---
@@ -1049,21 +937,13 @@ class VajranadStore {
     return active;
   }
 
-  // --- Performance Request Firestore Helpers ---
-  private async savePerformanceRequestToFirestore(p: PerformanceRequest) {
-    try {
-      await setDoc(doc(db, 'performance_requests', p.id), cleanObjectForFirestore(p));
-    } catch (e) {
-      handleFirestoreError(e, OperationType.WRITE, `performance_requests/${p.id}`);
-    }
+  // --- Performance Request Supabase Helpers ---
+  private savePerformanceRequestToFirestore(p: PerformanceRequest) {
+    savePerformanceRequestToSupabase(p);
   }
 
-  private async deletePerformanceRequestFromFirestore(id: string) {
-    try {
-      await deleteDoc(doc(db, 'performance_requests', id));
-    } catch (e) {
-      handleFirestoreError(e, OperationType.DELETE, `performance_requests/${id}`);
-    }
+  private deletePerformanceRequestFromFirestore(id: string) {
+    deletePerformanceRequestFromSupabase(id);
   }
 
   // --- Performance Requests API ---
