@@ -1,0 +1,1148 @@
+import { Member, AttendanceSession, AttendanceRecord, Notice, GalleryItem, Folder, Instrument, Gender, BloodGroup, AttendanceType, EventCountdown, PerformanceRequest } from '../types';
+import { db, handleFirestoreError, OperationType, cleanObjectForFirestore } from './firebase';
+import { collection, doc, setDoc, deleteDoc, getDocs } from 'firebase/firestore';
+
+// Safe wrapper for localStorage.setItem to completely prevent QuotaExceededError crashes
+try {
+  const originalSetItem = localStorage.setItem.bind(localStorage);
+  localStorage.setItem = function (key: string, value: string) {
+    try {
+      originalSetItem(key, value);
+    } catch (e) {
+      console.warn(`LocalStorage write failed for key "${key}" (likely quota exceeded):`, e);
+    }
+  };
+} catch (err) {
+  console.error("Failed to wrap localStorage.setItem:", err);
+}
+
+// Default Seed Data
+const MOCK_MEMBERS: Member[] = [];
+
+const MOCK_SESSIONS: AttendanceSession[] = [];
+
+const MOCK_RECORDS: AttendanceRecord[] = [];
+
+const MOCK_NOTICES: Notice[] = [];
+
+const MOCK_GALLERY: GalleryItem[] = [];
+
+// Helper to calculate age from DOB
+export function calculateAge(dobString?: string): number {
+  if (!dobString) return 0;
+  const birthDate = new Date(dobString);
+  const today = new Date();
+  let age = today.getFullYear() - birthDate.getFullYear();
+  const m = today.getMonth() - birthDate.getMonth();
+  if (m < 0 || (m === 0 && today.getDate() < birthDate.getDate())) {
+    age--;
+  }
+  return age;
+}
+
+class VajranadStore {
+  private membersKey = 'vajranad_members';
+  private sessionsKey = 'vajranad_sessions';
+  private recordsKey = 'vajranad_records';
+  private noticesKey = 'vajranad_notices';
+  private galleryKey = 'vajranad_gallery';
+  private foldersKey = 'vajranad_folders';
+  private currentUserKey = 'vajranad_current_user';
+  private countdownsKey = 'vajranad_countdowns';
+  private performanceRequestsKey = 'vajranad_performance_requests';
+
+  constructor() {
+    this.initDatabase();
+    this.syncFromFirestore();
+  }
+
+  // --- Firestore Persistence Helpers ---
+  private async saveFolderToFirestore(f: Folder) {
+    try {
+      await setDoc(doc(db, 'folders', f.id), cleanObjectForFirestore(f));
+    } catch (e) {
+      handleFirestoreError(e, OperationType.WRITE, `folders/${f.id}`);
+    }
+  }
+
+  private async deleteFolderFromFirestore(id: string) {
+    try {
+      await deleteDoc(doc(db, 'folders', id));
+    } catch (e) {
+      handleFirestoreError(e, OperationType.DELETE, `folders/${id}`);
+    }
+  }
+
+  private async saveMemberToFirestore(m: Member) {
+    try {
+      await setDoc(doc(db, 'members', m.id), cleanObjectForFirestore(m));
+    } catch (e) {
+      handleFirestoreError(e, OperationType.WRITE, `members/${m.id}`);
+    }
+  }
+
+  private async deleteMemberFromFirestore(id: string) {
+    try {
+      await deleteDoc(doc(db, 'members', id));
+    } catch (e) {
+      handleFirestoreError(e, OperationType.DELETE, `members/${id}`);
+    }
+  }
+
+  private async deleteSessionFromFirestore(id: string) {
+    try {
+      await deleteDoc(doc(db, 'sessions', id));
+    } catch (e) {
+      handleFirestoreError(e, OperationType.DELETE, `sessions/${id}`);
+    }
+  }
+
+  private async deleteRecordFromFirestore(id: string) {
+    try {
+      await deleteDoc(doc(db, 'records', id));
+    } catch (e) {
+      handleFirestoreError(e, OperationType.DELETE, `records/${id}`);
+    }
+  }
+
+  private async saveSessionToFirestore(s: AttendanceSession) {
+    try {
+      await setDoc(doc(db, 'sessions', s.id), cleanObjectForFirestore(s));
+    } catch (e) {
+      handleFirestoreError(e, OperationType.WRITE, `sessions/${s.id}`);
+    }
+  }
+
+  private async saveRecordToFirestore(r: AttendanceRecord) {
+    try {
+      await setDoc(doc(db, 'records', r.id), cleanObjectForFirestore(r));
+    } catch (e) {
+      handleFirestoreError(e, OperationType.WRITE, `records/${r.id}`);
+    }
+  }
+
+  private async saveNoticeToFirestore(n: Notice) {
+    try {
+      await setDoc(doc(db, 'notices', n.id), cleanObjectForFirestore(n));
+    } catch (e) {
+      handleFirestoreError(e, OperationType.WRITE, `notices/${n.id}`);
+    }
+  }
+
+  private async deleteNoticeFromFirestore(id: string) {
+    try {
+      await deleteDoc(doc(db, 'notices', id));
+    } catch (e) {
+      handleFirestoreError(e, OperationType.DELETE, `notices/${id}`);
+    }
+  }
+
+  private async saveGalleryToFirestore(g: GalleryItem) {
+    try {
+      await setDoc(doc(db, 'gallery', g.id), cleanObjectForFirestore(g));
+    } catch (e) {
+      handleFirestoreError(e, OperationType.WRITE, `gallery/${g.id}`);
+    }
+  }
+
+  private async deleteGalleryFromFirestore(id: string) {
+    try {
+      await deleteDoc(doc(db, 'gallery', id));
+    } catch (e) {
+      handleFirestoreError(e, OperationType.DELETE, `gallery/${id}`);
+    }
+  }
+
+  private async saveCountdownToFirestore(c: EventCountdown) {
+    try {
+      await setDoc(doc(db, 'countdowns', c.id), cleanObjectForFirestore(c));
+    } catch (e) {
+      handleFirestoreError(e, OperationType.WRITE, `countdowns/${c.id}`);
+    }
+  }
+
+  private async deleteCountdownFromFirestore(id: string) {
+    try {
+      await deleteDoc(doc(db, 'countdowns', id));
+    } catch (e) {
+      handleFirestoreError(e, OperationType.DELETE, `countdowns/${id}`);
+    }
+  }
+
+  public async syncFromFirestore() {
+    try {
+      console.log("Starting bidirectional sync with Firestore...");
+
+      // 1. Members
+      const membersSnap = await getDocs(collection(db, 'members')).catch(err => {
+        handleFirestoreError(err, OperationType.LIST, 'members');
+        throw err;
+      });
+      const remoteMembers: Member[] = [];
+      membersSnap.forEach(doc => {
+        remoteMembers.push(doc.data() as Member);
+      });
+      if (remoteMembers.length > 0) {
+        localStorage.setItem(this.membersKey, JSON.stringify(remoteMembers));
+      } else {
+        const localMembers = this.getMembers();
+        for (const m of localMembers) {
+          await setDoc(doc(db, 'members', m.id), cleanObjectForFirestore(m)).catch(err => {
+            handleFirestoreError(err, OperationType.CREATE, `members/${m.id}`);
+          });
+        }
+      }
+
+      // 2. Sessions
+      const sessionsSnap = await getDocs(collection(db, 'sessions')).catch(err => {
+        handleFirestoreError(err, OperationType.LIST, 'sessions');
+        throw err;
+      });
+      const remoteSessions: AttendanceSession[] = [];
+      sessionsSnap.forEach(doc => {
+        remoteSessions.push(doc.data() as AttendanceSession);
+      });
+      if (remoteSessions.length > 0) {
+        localStorage.setItem(this.sessionsKey, JSON.stringify(remoteSessions));
+      } else {
+        const localSessions = this.getSessions();
+        for (const s of localSessions) {
+          await setDoc(doc(db, 'sessions', s.id), cleanObjectForFirestore(s)).catch(err => {
+            handleFirestoreError(err, OperationType.CREATE, `sessions/${s.id}`);
+          });
+        }
+      }
+
+      // 3. Records
+      const recordsSnap = await getDocs(collection(db, 'records')).catch(err => {
+        handleFirestoreError(err, OperationType.LIST, 'records');
+        throw err;
+      });
+      const remoteRecords: AttendanceRecord[] = [];
+      recordsSnap.forEach(doc => {
+        remoteRecords.push(doc.data() as AttendanceRecord);
+      });
+      if (remoteRecords.length > 0) {
+        localStorage.setItem(this.recordsKey, JSON.stringify(remoteRecords));
+      } else {
+        const localRecords = this.getAttendanceRecords();
+        for (const r of localRecords) {
+          await setDoc(doc(db, 'records', r.id), cleanObjectForFirestore(r)).catch(err => {
+            handleFirestoreError(err, OperationType.CREATE, `records/${r.id}`);
+          });
+        }
+      }
+
+      // 4. Notices
+      const noticesSnap = await getDocs(collection(db, 'notices')).catch(err => {
+        handleFirestoreError(err, OperationType.LIST, 'notices');
+        throw err;
+      });
+      const remoteNotices: Notice[] = [];
+      noticesSnap.forEach(doc => {
+        remoteNotices.push(doc.data() as Notice);
+      });
+      if (remoteNotices.length > 0) {
+        localStorage.setItem(this.noticesKey, JSON.stringify(remoteNotices));
+      } else {
+        const localNotices = this.getNotices();
+        for (const n of localNotices) {
+          await setDoc(doc(db, 'notices', n.id), cleanObjectForFirestore(n)).catch(err => {
+            handleFirestoreError(err, OperationType.CREATE, `notices/${n.id}`);
+          });
+        }
+      }
+
+      // 5. Gallery
+      const gallerySnap = await getDocs(collection(db, 'gallery')).catch(err => {
+        handleFirestoreError(err, OperationType.LIST, 'gallery');
+        throw err;
+      });
+      const remoteGallery: GalleryItem[] = [];
+      gallerySnap.forEach(doc => {
+        remoteGallery.push(doc.data() as GalleryItem);
+      });
+      if (remoteGallery.length > 0) {
+        localStorage.setItem(this.galleryKey, JSON.stringify(remoteGallery));
+      } else {
+        const localGallery = this.getGalleryItems();
+        for (const g of localGallery) {
+          await setDoc(doc(db, 'gallery', g.id), cleanObjectForFirestore(g)).catch(err => {
+            handleFirestoreError(err, OperationType.CREATE, `gallery/${g.id}`);
+          });
+        }
+      }
+
+      // 6. Folders
+      const foldersSnap = await getDocs(collection(db, 'folders')).catch(err => {
+        handleFirestoreError(err, OperationType.LIST, 'folders');
+        throw err;
+      });
+      const remoteFolders: Folder[] = [];
+      foldersSnap.forEach(doc => {
+        remoteFolders.push(doc.data() as Folder);
+      });
+      if (remoteFolders.length > 0) {
+        localStorage.setItem(this.foldersKey, JSON.stringify(remoteFolders));
+      } else {
+        const localFolders = this.getFolders();
+        for (const f of localFolders) {
+          await setDoc(doc(db, 'folders', f.id), cleanObjectForFirestore(f)).catch(err => {
+            handleFirestoreError(err, OperationType.CREATE, `folders/${f.id}`);
+          });
+        }
+      }
+
+      // 7. Countdowns
+      const countdownsSnap = await getDocs(collection(db, 'countdowns')).catch(err => {
+        handleFirestoreError(err, OperationType.LIST, 'countdowns');
+        throw err;
+      });
+      const remoteCountdowns: EventCountdown[] = [];
+      countdownsSnap.forEach(doc => {
+        remoteCountdowns.push(doc.data() as EventCountdown);
+      });
+      if (remoteCountdowns.length > 0) {
+        localStorage.setItem(this.countdownsKey, JSON.stringify(remoteCountdowns));
+      } else {
+        const localCountdowns = this.getCountdowns();
+        for (const c of localCountdowns) {
+          await setDoc(doc(db, 'countdowns', c.id), cleanObjectForFirestore(c)).catch(err => {
+            handleFirestoreError(err, OperationType.CREATE, `countdowns/${c.id}`);
+          });
+        }
+      }
+
+      // 8. Performance Requests
+      const performanceRequestsSnap = await getDocs(collection(db, 'performance_requests')).catch(err => {
+        // If collection doesn't exist or permissions aren't set up yet, continue gracefully
+        console.warn("Performance requests Firestore fetch failed or skipped", err);
+        return null;
+      });
+      if (performanceRequestsSnap) {
+        const remotePerformanceRequests: PerformanceRequest[] = [];
+        performanceRequestsSnap.forEach(doc => {
+          remotePerformanceRequests.push(doc.data() as PerformanceRequest);
+        });
+        if (remotePerformanceRequests.length > 0) {
+          localStorage.setItem(this.performanceRequestsKey, JSON.stringify(remotePerformanceRequests));
+        } else {
+          const localPerformanceRequests = this.getPerformanceRequests();
+          for (const pr of localPerformanceRequests) {
+            await setDoc(doc(db, 'performance_requests', pr.id), cleanObjectForFirestore(pr)).catch(err => {
+              console.warn("Error seeding performance request:", err);
+            });
+          }
+        }
+      }
+
+      console.log("Firestore sync completed successfully!");
+    } catch (e: any) {
+      const errMsg = e instanceof Error ? e.message : String(e);
+      if (errMsg.toLowerCase().includes('permission') || errMsg.toLowerCase().includes('insufficient')) {
+        console.warn("Firestore sync was restricted by security rules. Gracefully running on LocalStorage backup.");
+      } else {
+        console.warn("Firestore sync failed, falling back to local cache:", e);
+      }
+    }
+  }
+
+  private initDatabase() {
+    // Clear old seeded mock data containing "mem_rahul" to clean up previous state
+    const existingMembers = localStorage.getItem(this.membersKey);
+    if (existingMembers && existingMembers.includes('mem_rahul')) {
+      localStorage.removeItem(this.membersKey);
+      localStorage.removeItem(this.sessionsKey);
+      localStorage.removeItem(this.recordsKey);
+      localStorage.removeItem(this.noticesKey);
+      localStorage.removeItem(this.galleryKey);
+      localStorage.removeItem(this.foldersKey);
+    }
+
+    if (!localStorage.getItem(this.membersKey)) {
+      localStorage.setItem(this.membersKey, JSON.stringify(MOCK_MEMBERS));
+    }
+    if (!localStorage.getItem(this.sessionsKey)) {
+      localStorage.setItem(this.sessionsKey, JSON.stringify(MOCK_SESSIONS));
+    }
+    if (!localStorage.getItem(this.recordsKey)) {
+      localStorage.setItem(this.recordsKey, JSON.stringify(MOCK_RECORDS));
+    }
+    if (!localStorage.getItem(this.countdownsKey)) {
+      const defaultCountdowns: EventCountdown[] = [
+        {
+          id: 'cd_ganesh',
+          heading: 'Ganesh Utsav Belagavi Miravnuk 🥁',
+          date: '2026-09-15',
+          createdAt: new Date().toISOString(),
+          isActive: true
+        }
+      ];
+      localStorage.setItem(this.countdownsKey, JSON.stringify(defaultCountdowns));
+    }
+
+    if (!localStorage.getItem(this.foldersKey)) {
+      const defaultFolders: Folder[] = [
+        {
+          id: 'fold_ganesh',
+          name: 'Ganesh Utsav 2026 (गणेशोत्सव २०२६)',
+          description: 'Practice schedules, media, and announcements for the grand Ganesh Festival performance in Belagavi.',
+          createdAt: new Date('2026-07-01T10:00:00.000Z').toISOString()
+        },
+        {
+          id: 'fold_shiv',
+          name: 'Shiv Jayanti Celebration (शिवजयंती उत्सव)',
+          description: 'Performance details, timings, routing map and notices for Chhatrapati Shivaji Maharaj Jayanti.',
+          createdAt: new Date('2026-07-10T12:00:00.000Z').toISOString()
+        },
+        {
+          id: 'fold_general',
+          name: 'General Announcements (सामान्य सूचना)',
+          description: 'Official group rules, administrative notices, registration forms, and general announcements.',
+          createdAt: new Date('2026-06-15T08:00:00.000Z').toISOString()
+        }
+      ];
+      localStorage.setItem(this.foldersKey, JSON.stringify(defaultFolders));
+
+      // Seed initial notices inside these folders
+      const initialNotices: Notice[] = [
+        {
+          id: 'not_seed_1',
+          folderId: 'fold_ganesh',
+          title: 'Daily Practice Schedule - Belagavi Ground',
+          content: 'Practice starts everyday at 6:30 PM sharp. Attendance is compulsory for all registered Vadak (New and Experienced). Please bring your sticks and ear protection.',
+          date: '2026-07-18',
+          type: 'Practice Schedule'
+        },
+        {
+          id: 'not_seed_2',
+          folderId: 'fold_shiv',
+          title: 'Miraj Road Miravnuk Performance Details',
+          content: 'Performance route is confirmed from Belagavi Fort to Chhatrapati Sambhaji Circle. Dress Code: Traditional White Kurta Pyjama with Orange Pheta. Scanners will be active at 4:30 PM.',
+          date: '2026-07-15',
+          type: 'Performance Details'
+        },
+        {
+          id: 'not_seed_3',
+          folderId: 'fold_general',
+          title: 'Mandatory Pathak ID Verification',
+          content: 'Attention all players: Registration now strictly requires the verified Pathak ID (VDTP@772016_BGM) to prevent unauthorized entry. Ensure your profile fields are completed to unlock your digital QR Card.',
+          date: '2026-07-12',
+          type: 'Announcement'
+        }
+      ];
+      localStorage.setItem(this.noticesKey, JSON.stringify(initialNotices));
+
+      // Seed initial gallery items inside these folders
+      const initialGallery: GalleryItem[] = [
+        {
+          id: 'gal_seed_1',
+          folderId: 'fold_ganesh',
+          url: 'https://images.unsplash.com/photo-1511192336575-5a79af67a629?auto=format&fit=crop&w=600&q=80',
+          type: 'photo',
+          title: 'Dhol Pathak Practice High-Energy'
+        },
+        {
+          id: 'gal_seed_2',
+          folderId: 'fold_shiv',
+          url: 'https://images.unsplash.com/photo-1561489422-45de3d015e3e?auto=format&fit=crop&w=600&q=80',
+          type: 'photo',
+          title: 'Tasha Vadak Performance Solo'
+        }
+      ];
+      localStorage.setItem(this.galleryKey, JSON.stringify(initialGallery));
+    }
+
+    if (!localStorage.getItem(this.noticesKey)) {
+      localStorage.setItem(this.noticesKey, JSON.stringify(MOCK_NOTICES));
+    }
+    if (!localStorage.getItem(this.galleryKey)) {
+      localStorage.setItem(this.galleryKey, JSON.stringify(MOCK_GALLERY));
+    }
+    if (!localStorage.getItem(this.performanceRequestsKey)) {
+      localStorage.setItem(this.performanceRequestsKey, JSON.stringify([]));
+    }
+  }
+
+  // Backup and Restore
+  public getBackupString(): string {
+    const data = {
+      members: this.getMembers(),
+      sessions: this.getSessions(),
+      records: this.getAttendanceRecords(),
+      folders: this.getFolders(),
+      notices: this.getNotices(),
+      gallery: this.getGalleryItems(),
+      performanceRequests: this.getPerformanceRequests()
+    };
+    return JSON.stringify(data, null, 2);
+  }
+
+  public restoreBackup(backupJson: string): boolean {
+    try {
+      const data = JSON.parse(backupJson);
+      if (data.members && Array.isArray(data.members)) {
+        localStorage.setItem(this.membersKey, JSON.stringify(data.members));
+      }
+      if (data.sessions && Array.isArray(data.sessions)) {
+        localStorage.setItem(this.sessionsKey, JSON.stringify(data.sessions));
+      }
+      if (data.records && Array.isArray(data.records)) {
+        localStorage.setItem(this.recordsKey, JSON.stringify(data.records));
+      }
+      if (data.folders && Array.isArray(data.folders)) {
+        localStorage.setItem(this.foldersKey, JSON.stringify(data.folders));
+      }
+      if (data.notices && Array.isArray(data.notices)) {
+        localStorage.setItem(this.noticesKey, JSON.stringify(data.notices));
+      }
+      if (data.gallery && Array.isArray(data.gallery)) {
+        localStorage.setItem(this.galleryKey, JSON.stringify(data.gallery));
+      }
+      if (data.performanceRequests && Array.isArray(data.performanceRequests)) {
+        localStorage.setItem(this.performanceRequestsKey, JSON.stringify(data.performanceRequests));
+      }
+      return true;
+    } catch (e) {
+      console.error('Failed to restore backup', e);
+      return false;
+    }
+  }
+
+  // --- Auth API ---
+  public getCurrentUser(): Member | null {
+    const userStr = localStorage.getItem(this.currentUserKey);
+    if (!userStr) return null;
+    const basicUser = JSON.parse(userStr) as Member;
+    // Reload full details from member list to keep synced
+    const members = this.getMembers();
+    const fullUser = members.find(m => m.id === basicUser.id || m.email === basicUser.email);
+    return fullUser || basicUser;
+  }
+
+  public login(email: string, password?: string, isSecretAdminLogin?: boolean): { success: boolean; member?: Member; error?: string } {
+    const members = this.getMembers();
+    // Normalize email/username input
+    const normEmail = email.trim().toLowerCase();
+    const cleanPassword = (password || '').trim();
+    
+    // Check if admin login credentials
+    if (
+      normEmail === 'admin@vajranad.com' ||
+      normEmail === 'zhende parshuram' ||
+      normEmail === 'zhende_parshuram' ||
+      normEmail === 'vajranad_7716' ||
+      normEmail === 'vajranad' ||
+      normEmail === 'admin'
+    ) {
+      if (!isSecretAdminLogin) {
+        return { success: false, error: 'Incorrect information.' };
+      }
+
+      const isCorrectPassword = 
+        cleanPassword.toUpperCase() === 'KINGOFNORTH' || 
+        cleanPassword.toLowerCase() === 'admin123';
+
+      if (!isCorrectPassword) {
+        return { success: false, error: 'Incorrect administrator password.' };
+      }
+
+      // Automatically reset any admin_deleted flags so that login is never blocked
+      localStorage.removeItem('admin_deleted');
+
+      let admin = members.find(m => m.email === 'admin@vajranad.com');
+      if (!admin) {
+        // Create the admin member
+        admin = {
+          id: 'mem_admin',
+          email: 'admin@vajranad.com',
+          name: 'Vajranad Admin',
+          profilePhoto: 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=150&h=150&q=80',
+          mobileNumber: '9999999999',
+          address: 'Belgav Ground, Belgav',
+          dob: '1995-01-01',
+          gender: 'Male',
+          bloodGroup: 'O+',
+          motherName: 'Admin Mother',
+          motherMobile: '9999999998',
+          fatherName: 'Admin Father',
+          fatherMobile: '9999999997',
+          yearJoined: 2020,
+          medicalIssue: false,
+          instrument: 'Committee Member',
+          isDetailsFilled: true,
+          isActive: true,
+          scannerPermission: true,
+          isCommitteeMember: true,
+          qrCode: 'mem_admin',
+          password: 'admin_password_unused_default_or_whatever',
+          createdAt: new Date().toISOString()
+        };
+        this.addMember(admin);
+      }
+      localStorage.setItem(this.currentUserKey, JSON.stringify(admin));
+      return { success: true, member: admin };
+    }
+
+    const member = members.find(m => m.email.toLowerCase() === normEmail);
+    if (!member) {
+      return { success: false, error: 'User account not found. Please create an account.' };
+    }
+    if (!member.isActive) {
+      return { success: false, error: 'Your account has been disabled by the admin.' };
+    }
+
+    // Verify password if set
+    if (member.password && member.password !== (password || '').trim()) {
+      return { success: false, error: 'Incorrect password. Please try again.' };
+    }
+
+    localStorage.setItem(this.currentUserKey, JSON.stringify(member));
+    return { success: true, member };
+  }
+
+  public signup(name: string, email: string, password?: string): { success: boolean; member?: Member; error?: string } {
+    const members = this.getMembers();
+    const normEmail = email.trim().toLowerCase();
+
+    if (members.some(m => m.email.toLowerCase() === normEmail)) {
+      return { success: false, error: 'An account with this email already exists.' };
+    }
+
+    const newMember: Member = {
+      id: 'mem_' + Math.random().toString(36).substr(2, 9),
+      email: normEmail,
+      name: name.trim(),
+      password: password ? password.trim() : undefined,
+      isDetailsFilled: false,
+      isActive: true,
+      scannerPermission: false,
+      isCommitteeMember: false,
+      medicalIssue: false,
+      qrCode: '', // Generated after filling settings
+      createdAt: new Date().toISOString()
+    };
+
+    this.addMember(newMember);
+    localStorage.setItem(this.currentUserKey, JSON.stringify(newMember));
+    return { success: true, member: newMember };
+  }
+
+  public logout() {
+    localStorage.removeItem(this.currentUserKey);
+  }
+
+  // --- Members API ---
+  public getMembers(): Member[] {
+    const str = localStorage.getItem(this.membersKey);
+    return str ? JSON.parse(str) : [];
+  }
+
+  public updateMember(updated: Member) {
+    const members = this.getMembers();
+    const index = members.findIndex(m => m.id === updated.id);
+    if (index !== -1) {
+      members[index] = updated;
+      localStorage.setItem(this.membersKey, JSON.stringify(members));
+
+      // Sync if it is current user
+      const currentUser = this.getCurrentUser();
+      if (currentUser && currentUser.id === updated.id) {
+        localStorage.setItem(this.currentUserKey, JSON.stringify(updated));
+      }
+
+      // Persist to Firestore
+      this.saveMemberToFirestore(updated);
+    }
+  }
+
+  public addMember(member: Member) {
+    const members = this.getMembers();
+    members.push(member);
+    localStorage.setItem(this.membersKey, JSON.stringify(members));
+
+    // Persist to Firestore
+    this.saveMemberToFirestore(member);
+  }
+
+  public deleteMember(id: string) {
+    let members = this.getMembers();
+    const deletingAdmin = members.find(m => m.id === id && (m.id === 'mem_admin' || m.email.toLowerCase() === 'admin@vajranad.com'));
+    if (deletingAdmin) {
+      localStorage.setItem('admin_deleted', 'true');
+    }
+    members = members.filter(m => m.id !== id);
+    localStorage.setItem(this.membersKey, JSON.stringify(members));
+
+    // Persist to Firestore
+    this.deleteMemberFromFirestore(id);
+  }
+
+  // --- Attendance Sessions API ---
+  public getSessions(): AttendanceSession[] {
+    const str = localStorage.getItem(this.sessionsKey);
+    return str ? JSON.parse(str) : [];
+  }
+
+  public getActiveSession(): AttendanceSession | null {
+    const sessions = this.getSessions();
+    const active = sessions.find(s => s.isActive);
+    if (!active) return null;
+
+    // Auto-deactivate session if the date is in the past
+    const todayDateStr = new Date().toISOString().split('T')[0];
+    if (active.date !== todayDateStr) {
+      active.isActive = false;
+      this.saveSessionToFirestore(active);
+      localStorage.setItem(this.sessionsKey, JSON.stringify(sessions));
+      return null;
+    }
+    return active;
+  }
+
+  public createSession(type: AttendanceType, title: string, creatorName: string): AttendanceSession {
+    const sessions = this.getSessions();
+    
+    // Deactivate all previous sessions
+    sessions.forEach(s => {
+      if (s.isActive) {
+        s.isActive = false;
+        this.saveSessionToFirestore(s);
+      }
+    });
+
+    const weekdays = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+    const today = new Date();
+    const dateStr = today.toISOString().split('T')[0];
+    const dayStr = weekdays[today.getDay()];
+
+    // Create only one session report per day separate for practice and performance
+    const existingSession = sessions.find(s => s.type === type && s.date === dateStr);
+    if (existingSession) {
+      existingSession.isActive = true;
+      this.saveSessionToFirestore(existingSession);
+      localStorage.setItem(this.sessionsKey, JSON.stringify(sessions));
+      return existingSession;
+    }
+
+    const newSession: AttendanceSession = {
+      id: 'sess_' + Math.random().toString(36).substr(2, 9),
+      type,
+      title: title.trim(),
+      date: dateStr,
+      day: dayStr,
+      isActive: true,
+      createdBy: creatorName
+    };
+
+    sessions.push(newSession);
+    localStorage.setItem(this.sessionsKey, JSON.stringify(sessions));
+
+    // Persist to Firestore
+    this.saveSessionToFirestore(newSession);
+
+    return newSession;
+  }
+
+  public closeActiveSession() {
+    const sessions = this.getSessions();
+    sessions.forEach(s => {
+      if (s.isActive) {
+        s.isActive = false;
+        this.saveSessionToFirestore(s);
+      }
+    });
+    localStorage.setItem(this.sessionsKey, JSON.stringify(sessions));
+  }
+
+  public deleteSession(id: string) {
+    let sessions = this.getSessions();
+    sessions = sessions.filter(s => s.id !== id);
+    localStorage.setItem(this.sessionsKey, JSON.stringify(sessions));
+    this.deleteSessionFromFirestore(id);
+
+    // Also delete any associated attendance records
+    let records = this.getAttendanceRecords();
+    const recordsToDelete = records.filter(r => r.sessionId === id);
+    records = records.filter(r => r.sessionId !== id);
+    localStorage.setItem(this.recordsKey, JSON.stringify(records));
+
+    recordsToDelete.forEach(rec => {
+      this.deleteRecordFromFirestore(rec.id);
+    });
+  }
+
+  public formatTo12Hour(timeStr: string): string {
+    if (!timeStr) return '';
+    // If it already has AM or PM (case-insensitive), return as-is
+    if (timeStr.toLowerCase().includes('am') || timeStr.toLowerCase().includes('pm')) {
+      return timeStr;
+    }
+    // Parse "HH:MM:SS" or "HH:MM"
+    const parts = timeStr.split(':');
+    if (parts.length >= 2) {
+      let hours = parseInt(parts[0], 10);
+      const minutes = parts[1];
+      const seconds = parts[2] ? parts[2] : null;
+      if (isNaN(hours)) return timeStr;
+      
+      const ampm = hours >= 12 ? 'PM' : 'AM';
+      hours = hours % 12;
+      hours = hours ? hours : 12; // 0 should be 12
+      const hoursStr = hours < 10 ? `0${hours}` : `${hours}`;
+      return `${hoursStr}:${minutes}${seconds ? `:${seconds}` : ''} ${ampm}`;
+    }
+    return timeStr;
+  }
+
+  // --- Attendance Records API ---
+  public getAttendanceRecords(): AttendanceRecord[] {
+    const str = localStorage.getItem(this.recordsKey);
+    const records: AttendanceRecord[] = str ? JSON.parse(str) : [];
+    return records.map(rec => ({
+      ...rec,
+      scanTime: this.formatTo12Hour(rec.scanTime)
+    }));
+  }
+
+  public markAttendance(qrCode: string, sessionId: string, scannedBy: string): { success: boolean; record?: AttendanceRecord; error?: string; alreadyMarked?: boolean; member?: Member } {
+    const members = this.getMembers();
+    const records = this.getAttendanceRecords();
+    const sessions = this.getSessions();
+
+    const session = sessions.find(s => s.id === sessionId);
+    if (!session) {
+      return { success: false, error: 'Active attendance session not found.' };
+    }
+
+    // Find member by permanent QR Code
+    const member = members.find(m => m.qrCode === qrCode || m.id === qrCode);
+    if (!member) {
+      return { success: false, error: 'Invalid QR Code or Membership Card.' };
+    }
+
+    if (!member.isActive) {
+      return { success: false, error: 'Member is disabled by Administrator.' };
+    }
+
+    // Check duplicate scan (member can scan only once per session type per day)
+    const duplicateToday = records.find(r => r.memberId === member.id && r.date === session.date && r.type === session.type);
+    if (duplicateToday) {
+      return { 
+        success: true, 
+        alreadyMarked: true, 
+        record: duplicateToday, 
+        member,
+        error: `Already marked for this session (${session.type})`
+      };
+    }
+
+    const today = new Date();
+    const timeStr = today.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true });
+
+    const newRecord: AttendanceRecord = {
+      id: 'rec_' + Math.random().toString(36).substr(2, 9),
+      sessionId,
+      memberId: member.id,
+      memberName: member.name,
+      instrument: member.instrument || 'Volunteer',
+      scanTime: timeStr,
+      scannedBy,
+      type: session.type,
+      date: session.date
+    };
+
+    records.push(newRecord);
+    localStorage.setItem(this.recordsKey, JSON.stringify(records));
+
+    // Persist to Firestore
+    this.saveRecordToFirestore(newRecord);
+
+    return { success: true, record: newRecord, member };
+  }
+
+  // --- Notices API ---
+  public getNotices(): Notice[] {
+    const str = localStorage.getItem(this.noticesKey);
+    return str ? JSON.parse(str) : [];
+  }
+
+  public createNotice(title: string, content: string, type: Notice['type'], folderId?: string): Notice {
+    const notices = this.getNotices();
+    const todayStr = new Date().toISOString().split('T')[0];
+
+    const newNotice: Notice = {
+      id: 'not_' + Math.random().toString(36).substr(2, 9),
+      title: title.trim(),
+      content: content.trim(),
+      date: todayStr,
+      type,
+      folderId
+    };
+
+    notices.unshift(newNotice);
+    localStorage.setItem(this.noticesKey, JSON.stringify(notices));
+
+    // Persist to Firestore
+    this.saveNoticeToFirestore(newNotice);
+
+    return newNotice;
+  }
+
+  public deleteNotice(id: string) {
+    let notices = this.getNotices();
+    notices = notices.filter(n => n.id !== id);
+    localStorage.setItem(this.noticesKey, JSON.stringify(notices));
+
+    // Persist to Firestore
+    this.deleteNoticeFromFirestore(id);
+  }
+
+  // --- Gallery API ---
+  public getGalleryItems(): GalleryItem[] {
+    const str = localStorage.getItem(this.galleryKey);
+    return str ? JSON.parse(str) : [];
+  }
+
+  public uploadGalleryItem(url: string, type: 'photo' | 'video', title: string, folderId?: string): GalleryItem {
+    const items = this.getGalleryItems();
+    const newItem: GalleryItem = {
+      id: 'gal_' + Math.random().toString(36).substr(2, 9),
+      url: url.trim() || 'https://images.unsplash.com/photo-1511192336575-5a79af67a629?auto=format&fit=crop&w=600&q=80',
+      type,
+      title: title.trim() || 'Vajranad Event',
+      folderId
+    };
+    items.unshift(newItem);
+    localStorage.setItem(this.galleryKey, JSON.stringify(items));
+
+    // Persist to Firestore
+    this.saveGalleryToFirestore(newItem);
+
+    return newItem;
+  }
+
+  public deleteGalleryItem(id: string) {
+    let items = this.getGalleryItems();
+    items = items.filter(i => i.id !== id);
+    localStorage.setItem(this.galleryKey, JSON.stringify(items));
+
+    // Persist to Firestore
+    this.deleteGalleryFromFirestore(id);
+  }
+
+  // --- Folders API ---
+  public getFolders(): Folder[] {
+    const str = localStorage.getItem(this.foldersKey);
+    return str ? JSON.parse(str) : [];
+  }
+
+  public createFolder(name: string, description?: string): Folder {
+    const folders = this.getFolders();
+    const newFolder: Folder = {
+      id: 'fold_' + Math.random().toString(36).substr(2, 9),
+      name: name.trim(),
+      description: description?.trim(),
+      createdAt: new Date().toISOString()
+    };
+    folders.unshift(newFolder);
+    localStorage.setItem(this.foldersKey, JSON.stringify(folders));
+    this.saveFolderToFirestore(newFolder);
+    return newFolder;
+  }
+
+  public updateFolder(id: string, name: string, description?: string): Folder | null {
+    const folders = this.getFolders();
+    const idx = folders.findIndex(f => f.id === id);
+    if (idx === -1) return null;
+    
+    folders[idx] = {
+      ...folders[idx],
+      name: name.trim(),
+      description: description?.trim()
+    };
+    localStorage.setItem(this.foldersKey, JSON.stringify(folders));
+    this.saveFolderToFirestore(folders[idx]);
+    return folders[idx];
+  }
+
+  public deleteFolder(id: string) {
+    let folders = this.getFolders();
+    folders = folders.filter(f => f.id !== id);
+    localStorage.setItem(this.foldersKey, JSON.stringify(folders));
+    this.deleteFolderFromFirestore(id);
+
+    // Also delete any notices and gallery items linked to this folder
+    let notices = this.getNotices();
+    const noticesToDelete = notices.filter(n => n.folderId === id);
+    notices = notices.filter(n => n.folderId !== id);
+    localStorage.setItem(this.noticesKey, JSON.stringify(notices));
+    noticesToDelete.forEach(n => this.deleteNoticeFromFirestore(n.id));
+
+    let gallery = this.getGalleryItems();
+    const galleryToDelete = gallery.filter(g => g.folderId === id);
+    gallery = gallery.filter(g => g.folderId !== id);
+    localStorage.setItem(this.galleryKey, JSON.stringify(gallery));
+    galleryToDelete.forEach(g => this.deleteGalleryFromFirestore(g.id));
+  }
+
+  // --- Countdowns API ---
+  public getCountdowns(): EventCountdown[] {
+    const str = localStorage.getItem(this.countdownsKey);
+    return str ? JSON.parse(str) : [];
+  }
+
+  public createCountdown(heading: string, date: string): EventCountdown {
+    const countdowns = this.getCountdowns();
+    
+    // Deactivate all others so only the new one is active by default
+    countdowns.forEach(c => c.isActive = false);
+
+    const newCountdown: EventCountdown = {
+      id: 'cd_' + Math.random().toString(36).substr(2, 9),
+      heading: heading.trim(),
+      date,
+      createdAt: new Date().toISOString(),
+      isActive: true
+    };
+    countdowns.unshift(newCountdown);
+    localStorage.setItem(this.countdownsKey, JSON.stringify(countdowns));
+
+    // Sync to Firestore
+    this.saveCountdownToFirestore(newCountdown);
+    // Sync all updated ones as well (since they changed to inactive)
+    countdowns.slice(1).forEach(c => this.saveCountdownToFirestore(c));
+
+    return newCountdown;
+  }
+
+  public deleteCountdown(id: string) {
+    let countdowns = this.getCountdowns();
+    countdowns = countdowns.filter(c => c.id !== id);
+    localStorage.setItem(this.countdownsKey, JSON.stringify(countdowns));
+    this.deleteCountdownFromFirestore(id);
+  }
+
+  public toggleCountdownActive(id: string) {
+    const countdowns = this.getCountdowns();
+    const target = countdowns.find(c => c.id === id);
+    if (!target) return;
+
+    const newVal = !target.isActive;
+    
+    if (newVal) {
+      countdowns.forEach(c => c.isActive = false);
+      target.isActive = true;
+    } else {
+      target.isActive = false;
+    }
+
+    localStorage.setItem(this.countdownsKey, JSON.stringify(countdowns));
+
+    // Save all to Firestore to ensure sync
+    countdowns.forEach(c => this.saveCountdownToFirestore(c));
+  }
+
+  public getActiveCountdown(): EventCountdown | null {
+    const countdowns = this.getCountdowns();
+    const active = countdowns.find(c => c.isActive);
+    if (!active) return null;
+
+    // Auto-delete countdowns whose event date has fully passed (day after event)
+    const eventDate = new Date(`${active.date}T00:00:00`);
+    const dayAfter = new Date(eventDate);
+    dayAfter.setDate(dayAfter.getDate() + 1);
+    if (new Date() >= dayAfter) {
+      this.deleteCountdown(active.id);
+      return null;
+    }
+
+    return active;
+  }
+
+  // --- Performance Request Firestore Helpers ---
+  private async savePerformanceRequestToFirestore(p: PerformanceRequest) {
+    try {
+      await setDoc(doc(db, 'performance_requests', p.id), cleanObjectForFirestore(p));
+    } catch (e) {
+      handleFirestoreError(e, OperationType.WRITE, `performance_requests/${p.id}`);
+    }
+  }
+
+  private async deletePerformanceRequestFromFirestore(id: string) {
+    try {
+      await deleteDoc(doc(db, 'performance_requests', id));
+    } catch (e) {
+      handleFirestoreError(e, OperationType.DELETE, `performance_requests/${id}`);
+    }
+  }
+
+  // --- Performance Requests API ---
+  public getPerformanceRequests(): PerformanceRequest[] {
+    const str = localStorage.getItem(this.performanceRequestsKey);
+    return str ? JSON.parse(str) : [];
+  }
+
+  public createPerformanceRequest(title: string, date: string, time: string, location: string, description?: string, expiryHours?: number): PerformanceRequest {
+    const requests = this.getPerformanceRequests();
+    const newRequest: PerformanceRequest = {
+      id: 'pr_' + Math.random().toString(36).substr(2, 9),
+      title: title.trim(),
+      date,
+      time: this.formatTo12Hour(time),
+      location: location.trim(),
+      description: description?.trim(),
+      createdAt: new Date().toISOString(),
+      isActive: true,
+      responses: {},
+      expiryHours: expiryHours !== undefined && expiryHours > 0 ? expiryHours : 48
+    };
+    requests.unshift(newRequest);
+    localStorage.setItem(this.performanceRequestsKey, JSON.stringify(requests));
+    this.savePerformanceRequestToFirestore(newRequest);
+    return newRequest;
+  }
+
+  public deletePerformanceRequest(id: string) {
+    let requests = this.getPerformanceRequests();
+    requests = requests.filter(r => r.id !== id);
+    localStorage.setItem(this.performanceRequestsKey, JSON.stringify(requests));
+    this.deletePerformanceRequestFromFirestore(id);
+  }
+
+  public togglePerformanceRequestActive(id: string) {
+    const requests = this.getPerformanceRequests();
+    const target = requests.find(r => r.id === id);
+    if (!target) return;
+    target.isActive = !target.isActive;
+    localStorage.setItem(this.performanceRequestsKey, JSON.stringify(requests));
+    this.savePerformanceRequestToFirestore(target);
+  }
+
+  public respondToPerformanceRequest(requestId: string, memberId: string, status: 'Yes' | 'No' | 'Maybe'): { success: boolean; error?: string } {
+    const requests = this.getPerformanceRequests();
+    const target = requests.find(r => r.id === requestId);
+    if (!target) return { success: false, error: 'Callout not found.' };
+
+    const createdAtMs = new Date(target.createdAt).getTime();
+    const expiryHours = target.expiryHours ?? 48;
+    const expiryLimitMs = expiryHours * 60 * 60 * 1000;
+    if (Date.now() - createdAtMs > expiryLimitMs) {
+      return { success: false, error: `This RSVP callout has reached its ${expiryHours}-hour response limit and is now closed.` };
+    }
+
+    if (target.responses && target.responses[memberId]) {
+      return { success: false, error: 'You have already submitted your response. RSVP edit is not allowed.' };
+    }
+
+    target.responses = {
+      ...target.responses,
+      [memberId]: status
+    };
+    localStorage.setItem(this.performanceRequestsKey, JSON.stringify(requests));
+    this.savePerformanceRequestToFirestore(target);
+    return { success: true };
+  }
+}
+
+export const store = new VajranadStore();

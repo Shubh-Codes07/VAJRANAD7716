@@ -1,0 +1,6 @@
+{
+  "name": "VAJRANAD",
+  "description": "Official digital management platform of वज्रनाद ढोल ताशा पथक, बेळगाव, featuring member profile, QR attendance, scanner, admin dashboard, notices, and analytics.",
+  "requestFramePermissions": ["camera"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

@@ -1,0 +1,147 @@
+{
+  "entities": {
+    "Member": {
+      "title": "Member",
+      "description": "Represents a Pathak member and their profile details.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "email": { "type": "string" },
+        "name": { "type": "string" },
+        "profilePhoto": { "type": "string" },
+        "mobileNumber": { "type": "string" },
+        "address": { "type": "string" },
+        "dob": { "type": "string" },
+        "gender": { "type": "string" },
+        "bloodGroup": { "type": "string" },
+        "motherName": { "type": "string" },
+        "motherMobile": { "type": "string" },
+        "fatherName": { "type": "string" },
+        "fatherMobile": { "type": "string" },
+        "yearJoined": { "type": "number" },
+        "medicalIssue": { "type": "boolean" },
+        "medicalDetails": { "type": "string" },
+        "instrument": { "type": "string" },
+        "isDetailsFilled": { "type": "boolean" },
+        "isActive": { "type": "boolean" },
+        "scannerPermission": { "type": "boolean" },
+        "isCommitteeMember": { "type": "boolean" },
+        "qrCode": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "email"]
+    },
+    "AttendanceSession": {
+      "title": "AttendanceSession",
+      "description": "An attendance taking session created by administrators.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "date": { "type": "string" },
+        "type": { "type": "string" },
+        "description": { "type": "string" },
+        "isActive": { "type": "boolean" },
+        "createdAt": { "type": "string" },
+        "createdBy": { "type": "string" }
+      },
+      "required": ["id", "date", "type", "isActive"]
+    },
+    "AttendanceRecord": {
+      "title": "AttendanceRecord",
+      "description": "An attendance log for a member in a session.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "sessionId": { "type": "string" },
+        "memberId": { "type": "string" },
+        "memberName": { "type": "string" },
+        "instrument": { "type": "string" },
+        "scanTime": { "type": "string" },
+        "scannedBy": { "type": "string" },
+        "type": { "type": "string" },
+        "date": { "type": "string" }
+      },
+      "required": ["id", "sessionId", "memberId", "date"]
+    },
+    "Notice": {
+      "title": "Notice",
+      "description": "An announcement notice published by admins.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "content": { "type": "string" },
+        "date": { "type": "string" },
+        "type": { "type": "string" }
+      },
+      "required": ["id", "title", "content", "date", "type"]
+    },
+    "GalleryItem": {
+      "title": "GalleryItem",
+      "description": "A performance/practice photo or video in the Pathak gallery.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "url": { "type": "string" },
+        "type": { "type": "string" },
+        "title": { "type": "string" }
+      },
+      "required": ["id", "url", "type"]
+    },
+    "Folder": {
+      "title": "Folder",
+      "description": "A folder to organize notices and gallery items.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "description": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "name", "createdAt"]
+    },
+    "EventCountdown": {
+      "title": "EventCountdown",
+      "description": "An upcoming event with a countdown timer shown on member home.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "heading": { "type": "string" },
+        "date": { "type": "string" },
+        "createdAt": { "type": "string" },
+        "isActive": { "type": "boolean" }
+      },
+      "required": ["id", "heading", "date", "createdAt", "isActive"]
+    }
+  },
+  "firestore": {
+    "members": {
+      "schema": "Member",
+      "description": "Pathak members directory"
+    },
+    "sessions": {
+      "schema": "AttendanceSession",
+      "description": "Attendance sessions list"
+    },
+    "records": {
+      "schema": "AttendanceRecord",
+      "description": "Attendance records registry"
+    },
+    "notices": {
+      "schema": "Notice",
+      "description": "Pathak board notices"
+    },
+    "gallery": {
+      "schema": "GalleryItem",
+      "description": "Gallery memories"
+    },
+    "folders": {
+      "schema": "Folder",
+      "description": "Folders list"
+    },
+    "countdowns": {
+      "schema": "EventCountdown",
+      "description": "Event countdowns"
+    }
+  }
+}
