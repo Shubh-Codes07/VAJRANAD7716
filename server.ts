@@ -5,9 +5,6 @@ import dotenv from 'dotenv';
 
 dotenv.config();
 
-// Globally disable TLS verification for local dev (fixes self-signed certificate issues)
-process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
-
 const app = express();
 const PORT = parseInt(process.env.PORT || '3000', 10);
 
@@ -67,6 +64,12 @@ app.post('/api/otp/send', async (req, res) => {
         otp: otp
       }
     };
+
+    // Safely mask the public key for logging to verify it's loaded correctly
+    const maskedKey = emailjsPublicKey.length > 4 
+      ? `${emailjsPublicKey.substring(0, 2)}...${emailjsPublicKey.substring(emailjsPublicKey.length - 2)}` 
+      : 'INVALID_LENGTH';
+    console.log(`[OTP] API Key check: Using public key: ${maskedKey}`);
 
     const response = await fetch('https://api.emailjs.com/api/v1.0/email/send', {
       method: 'POST',
