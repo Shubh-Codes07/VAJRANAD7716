@@ -166,25 +166,34 @@ export default function MemberProfileEdit({
     
     if (profilePhoto.startsWith('data:image')) {
       try {
+        console.log('[UPLOAD] Upload started: initializing Firebase Storage reference...');
         const fileRef = ref(storage, `profiles/${member.id}_${Date.now()}.jpg`);
         
         // Firebase Storage SDK often retries indefinitely instead of throwing an error
         // if security rules block the upload. We wrap it in a timeout to prevent UI hanging.
         const uploadTask = async () => {
+          console.log('[UPLOAD] Upload progress: Calling uploadString() to send Base64 data...');
           await uploadString(fileRef, profilePhoto, 'data_url');
-          return await getDownloadURL(fileRef);
+          console.log('[UPLOAD] Upload progress: uploadString() resolved. Calling getDownloadURL()...');
+          const url = await getDownloadURL(fileRef);
+          console.log(`[UPLOAD] Upload complete: Received download URL: ${url}`);
+          return url;
         };
 
         const timeoutPromise = new Promise<string>((_, reject) => {
-          setTimeout(() => reject(new Error('Upload timed out. Please check your Firebase Storage security rules or internet connection.')), 12000);
+          setTimeout(() => {
+            console.error('[UPLOAD] Upload failed: 20-second timeout reached. Firebase SDK is hanging.');
+            reject(new Error('Upload timed out after 20 seconds. Please check your Firebase Storage security rules or internet connection.'));
+          }, 20000);
         });
 
         finalPhotoUrl = await Promise.race([uploadTask(), timeoutPromise]);
 
       } catch (err: any) {
-        console.warn('⚠️ Firebase upload failed/timed out. Falling back to local Base64 image storage.', err.message);
-        // We do NOT block the save process anymore. 
-        // We just keep finalPhotoUrl as the base64 string and continue!
+        console.error('[UPLOAD] Upload failed with caught error:', err);
+        setError(err.message || 'Failed to upload profile photo. Please ensure Firebase permissions are correctly set.');
+        setIsSaving(false);
+        return; // Block save and show error to user
       }
     }
 

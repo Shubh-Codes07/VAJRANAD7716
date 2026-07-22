@@ -13,6 +13,15 @@ const firebaseConfig = {
   appId: (import.meta as any).env.VITE_FIREBASE_APP_ID || "1:145583737989:web:7336c1991c1ffcb0b5edec"
 };
 
+// Mask sensitive keys for logging
+const maskedConfig = {
+  ...firebaseConfig,
+  apiKey: firebaseConfig.apiKey ? `${firebaseConfig.apiKey.substring(0, 4)}...${firebaseConfig.apiKey.substring(firebaseConfig.apiKey.length - 4)}` : 'UNDEFINED',
+  appId: firebaseConfig.appId ? `${firebaseConfig.appId.substring(0, 4)}...${firebaseConfig.appId.substring(firebaseConfig.appId.length - 4)}` : 'UNDEFINED'
+};
+
+console.log('[FIREBASE INIT] Initializing with config:', maskedConfig);
+
 // Initialization of Firebase
 const app = initializeApp(firebaseConfig);
 export const db = getFirestore(app);
