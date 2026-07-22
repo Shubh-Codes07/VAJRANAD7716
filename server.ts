@@ -1,7 +1,5 @@
 import express from 'express';
 import path from 'path';
-import dns from 'dns';
-import nodemailer from 'nodemailer';
 import { createServer as createViteServer } from 'vite';
 import dotenv from 'dotenv';
 
@@ -42,87 +40,81 @@ app.post('/api/otp/send', async (req, res) => {
   otpStore.set(normalizedEmail, { otp, expires });
   console.log(`[OTP] Generated OTP for ${normalizedEmail}: ${otp}`);
 
-  // Retrieve SMTP credentials — prefer GMAIL_USER/GMAIL_APP_PASSWORD,
-  // fall back to legacy SMTP_USER/SMTP_PASS for backwards compatibility
-  const smtpUser = process.env.GMAIL_USER || process.env.SMTP_USER;
-  const smtpPass = process.env.GMAIL_APP_PASSWORD || process.env.SMTP_PASS;
+  // Retrieve Brevo credentials
+  const brevoApiKey = process.env.BREVO_API_KEY;
+  const brevoSenderEmail = process.env.BREVO_SENDER_EMAIL;
 
-  if (!smtpUser || !smtpPass) {
-    console.error('[OTP] SMTP credentials are not set in environment variables (GMAIL_USER / GMAIL_APP_PASSWORD)');
+  if (!brevoApiKey || !brevoSenderEmail) {
+    console.error('[OTP] Brevo credentials are not set in environment variables (BREVO_API_KEY / BREVO_SENDER_EMAIL)');
     return res.status(500).json({
       error: 'Email service is not configured on the server. Please contact the administrator.'
     });
   }
 
-  console.log(`[OTP] Using SMTP account: ${smtpUser}`);
-  console.log('[OTP] Creating Nodemailer transporter...');
+  console.log(`[OTP] Using Brevo Sender: ${brevoSenderEmail}`);
+  console.log(`[OTP] Sending email to ${normalizedEmail} via Brevo API...`);
 
   try {
-    const transporter = nodemailer.createTransport({
-      host: 'smtp.gmail.com',
-      port: 587,
-      secure: false,            // false for port 587 (STARTTLS)
-      requireTLS: true,         // Enforce TLS upgrade — more reliable than SSL/465 on Render
-      // Custom lookup forces IPv4-only DNS resolution.
-      // This is the REAL fix for ENETUNREACH on Render — `family: 4` alone does NOT
-      // override the DNS resolver; only a custom lookup function does.
-      lookup: (hostname: string, options: dns.LookupOptions, callback: (err: NodeJS.ErrnoException | null, address: string, family: number) => void) => {
-        dns.lookup(hostname, { ...options, family: 4 }, callback);
+    const htmlContent = `
+      <div style="font-family: Arial, sans-serif; max-width: 500px; margin: 0 auto; padding: 20px; border: 3px double #D4AF37; border-radius: 16px; background-color: #FAF6EE; color: #333;">
+        <div style="text-align: center; border-bottom: 2px solid #800000; padding-bottom: 15px; margin-bottom: 20px;">
+          <h2 style="color: #800000; margin: 0; font-family: 'Georgia', serif; text-transform: uppercase; letter-spacing: 1px;">वज्रनाद</h2>
+          <p style="color: #D4AF37; margin: 5px 0 0 0; font-size: 11px; font-weight: bold; letter-spacing: 2px; text-transform: uppercase;">Dhol Tasha Pathak Belgaum</p>
+        </div>
+        <p style="font-size: 14px; line-height: 1.5; font-weight: 500;">
+          Hello ${name ? `<strong>${name}</strong>` : 'Member'},
+        </p>
+        <p style="font-size: 14px; line-height: 1.5;">
+          You requested to sign in/register for your Vajranad Dhol Tasha Pathak account. Use the secure One-Time Password (OTP) below to complete your verification:
+        </p>
+        <div style="text-align: center; margin: 30px 0;">
+          <span style="font-size: 32px; font-weight: 800; letter-spacing: 6px; color: #800000; background-color: #FFFDD0; padding: 12px 24px; border-radius: 12px; border: 1px dashed #D4AF37; display: inline-block; font-family: monospace;">
+            ${otp}
+          </span>
+        </div>
+        <p style="font-size: 12px; color: #666; line-height: 1.4; text-align: center; margin-top: 20px;">
+          This OTP is valid for <strong>5 minutes</strong>. If you did not request this, please ignore this email.
+        </p>
+        <div style="text-align: center; border-top: 1px solid #ddd; margin-top: 30px; padding-top: 15px; font-size: 11px; color: #888;">
+          &copy; ${new Date().getFullYear()} Vajranad Dhol Tasha Pathak, Belgaum. All rights reserved.
+        </div>
+      </div>
+    `;
+
+    const response = await fetch('https://api.brevo.com/v3/smtp/email', {
+      method: 'POST',
+      headers: {
+        'Accept': 'application/json',
+        'Content-Type': 'application/json',
+        'api-key': brevoApiKey
       },
-      connectionTimeout: 12000, // 12s connection timeout
-      socketTimeout: 20000,     // 20s socket idle timeout
-      auth: {
-        user: smtpUser,
-        pass: smtpPass,
-      },
-      tls: {
-        rejectUnauthorized: false
-      }
+      body: JSON.stringify({
+        sender: { email: brevoSenderEmail, name: "Vajranad Dhol Tasha Pathak" },
+        to: [{ email: normalizedEmail, name: name || "Member" }],
+        subject: 'Vajranad Login/Signup OTP Verification',
+        htmlContent: htmlContent
+      })
     });
 
-    console.log('[OTP] Verifying SMTP connection...');
-    await transporter.verify();
-    console.log('[OTP] SMTP connection verified ✓');
+    let data;
+    try {
+      data = await response.json();
+    } catch (e) {
+      data = null;
+    }
 
-    const mailOptions = {
-      from: `"Vajranad Dhol Tasha Pathak" <${smtpUser}>`,
-      to: normalizedEmail,
-      subject: 'Vajranad Login/Signup OTP Verification',
-      html: `
-        <div style="font-family: Arial, sans-serif; max-width: 500px; margin: 0 auto; padding: 20px; border: 3px double #D4AF37; border-radius: 16px; background-color: #FAF6EE; color: #333;">
-          <div style="text-align: center; border-bottom: 2px solid #800000; padding-bottom: 15px; margin-bottom: 20px;">
-            <h2 style="color: #800000; margin: 0; font-family: 'Georgia', serif; text-transform: uppercase; letter-spacing: 1px;">वज्रनाद</h2>
-            <p style="color: #D4AF37; margin: 5px 0 0 0; font-size: 11px; font-weight: bold; letter-spacing: 2px; text-transform: uppercase;">Dhol Tasha Pathak Belgaum</p>
-          </div>
-          <p style="font-size: 14px; line-height: 1.5; font-weight: 500;">
-            Hello ${name ? `<strong>${name}</strong>` : 'Member'},
-          </p>
-          <p style="font-size: 14px; line-height: 1.5;">
-            You requested to sign in/register for your Vajranad Dhol Tasha Pathak account. Use the secure One-Time Password (OTP) below to complete your verification:
-          </p>
-          <div style="text-align: center; margin: 30px 0;">
-            <span style="font-size: 32px; font-weight: 800; letter-spacing: 6px; color: #800000; background-color: #FFFDD0; padding: 12px 24px; border-radius: 12px; border: 1px dashed #D4AF37; display: inline-block; font-family: monospace;">
-              ${otp}
-            </span>
-          </div>
-          <p style="font-size: 12px; color: #666; line-height: 1.4; text-align: center; margin-top: 20px;">
-            This OTP is valid for <strong>5 minutes</strong>. If you did not request this, please ignore this email.
-          </p>
-          <div style="text-align: center; border-top: 1px solid #ddd; margin-top: 30px; padding-top: 15px; font-size: 11px; color: #888;">
-            &copy; ${new Date().getFullYear()} Vajranad Dhol Tasha Pathak, Belgaum. All rights reserved.
-          </div>
-        </div>
-      `,
-    };
+    if (!response.ok) {
+      console.error('[OTP] ✗ Brevo API FAILED:', response.status, data);
+      return res.status(500).json({
+        error: `Failed to send OTP email (Brevo error). Please try again or contact support.`
+      });
+    }
 
-    console.log(`[OTP] Sending email to ${normalizedEmail}...`);
-    const info = await transporter.sendMail(mailOptions);
-    console.log(`[OTP] ✓ Email sent successfully! MessageId: ${info.messageId}`);
-
+    console.log(`[OTP] ✓ Email sent successfully via Brevo! MessageId: ${data?.messageId || 'unknown'}`);
     return res.status(200).json({ success: true, message: 'OTP sent successfully to your email.' });
 
   } catch (error: any) {
-    console.error('[OTP] ✗ Email sending FAILED:', error.message);
+    console.error('[OTP] ✗ Email sending FAILED (Network/Fetch error):', error.message);
     console.error('[OTP] Full error:', error);
 
     // Always return a response so the frontend never hangs
