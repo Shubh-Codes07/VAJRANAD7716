@@ -1,6 +1,7 @@
 import { Member, AttendanceSession, AttendanceRecord, Notice, GalleryItem, Folder, Instrument, Gender, BloodGroup, AttendanceType, EventCountdown, PerformanceRequest } from '../types';
 import { db, handleFirestoreError, OperationType, cleanObjectForFirestore } from './firebase';
 import { collection, doc, setDoc, deleteDoc, getDocs } from 'firebase/firestore';
+import { saveMemberToSupabase, deleteMemberFromSupabase, getAllMembersFromSupabase } from './supabase';
 
 // Safe wrapper for localStorage.setItem to completely prevent QuotaExceededError crashes
 try {
@@ -73,20 +74,14 @@ class VajranadStore {
     }
   }
 
-  private async saveMemberToFirestore(m: Member) {
-    try {
-      await setDoc(doc(db, 'members', m.id), cleanObjectForFirestore(m));
-    } catch (e) {
-      handleFirestoreError(e, OperationType.WRITE, `members/${m.id}`);
-    }
+  // Members are now persisted to Supabase (not Firestore).
+  // This is a thin wrapper kept for backwards-compatibility at call sites.
+  private saveMemberToFirestore(m: Member) {
+    saveMemberToSupabase(m); // fire-and-forget
   }
 
-  private async deleteMemberFromFirestore(id: string) {
-    try {
-      await deleteDoc(doc(db, 'members', id));
-    } catch (e) {
-      handleFirestoreError(e, OperationType.DELETE, `members/${id}`);
-    }
+  private deleteMemberFromFirestore(id: string) {
+    deleteMemberFromSupabase(id); // fire-and-forget
   }
 
   private async deleteSessionFromFirestore(id: string) {
@@ -173,23 +168,17 @@ class VajranadStore {
     try {
       console.log("Starting bidirectional sync with Firestore...");
 
-      // 1. Members
-      const membersSnap = await getDocs(collection(db, 'members')).catch(err => {
-        handleFirestoreError(err, OperationType.LIST, 'members');
-        throw err;
-      });
-      const remoteMembers: Member[] = [];
-      membersSnap.forEach(doc => {
-        remoteMembers.push(doc.data() as Member);
-      });
+      // 1. Members — read from Supabase (source of truth)
+      const remoteMembers = await getAllMembersFromSupabase();
       if (remoteMembers.length > 0) {
         localStorage.setItem(this.membersKey, JSON.stringify(remoteMembers));
+        console.log(`[STORE] Synced ${remoteMembers.length} member(s) from Supabase into localStorage.`);
       } else {
+        // No members in Supabase yet — push local members up
+        console.log('[STORE] No members found in Supabase. Pushing local members up...');
         const localMembers = this.getMembers();
         for (const m of localMembers) {
-          await setDoc(doc(db, 'members', m.id), cleanObjectForFirestore(m)).catch(err => {
-            handleFirestoreError(err, OperationType.CREATE, `members/${m.id}`);
-          });
+          await saveMemberToSupabase(m);
         }
       }
 
