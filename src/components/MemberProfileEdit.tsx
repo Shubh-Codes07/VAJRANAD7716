@@ -182,10 +182,9 @@ export default function MemberProfileEdit({
         finalPhotoUrl = await Promise.race([uploadTask(), timeoutPromise]);
 
       } catch (err: any) {
-        console.error('Failed to upload profile photo to Firebase:', err);
-        setError(err.message || 'Failed to upload profile photo. Please ensure Firebase permissions are correctly set.');
-        setIsSaving(false);
-        return;
+        console.warn('⚠️ Firebase upload failed/timed out. Falling back to local Base64 image storage.', err.message);
+        // We do NOT block the save process anymore. 
+        // We just keep finalPhotoUrl as the base64 string and continue!
       }
     }
 
