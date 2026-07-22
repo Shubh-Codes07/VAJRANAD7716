@@ -167,11 +167,23 @@ export default function MemberProfileEdit({
     if (profilePhoto.startsWith('data:image')) {
       try {
         const fileRef = ref(storage, `profiles/${member.id}_${Date.now()}.jpg`);
-        await uploadString(fileRef, profilePhoto, 'data_url');
-        finalPhotoUrl = await getDownloadURL(fileRef);
+        
+        // Firebase Storage SDK often retries indefinitely instead of throwing an error
+        // if security rules block the upload. We wrap it in a timeout to prevent UI hanging.
+        const uploadTask = async () => {
+          await uploadString(fileRef, profilePhoto, 'data_url');
+          return await getDownloadURL(fileRef);
+        };
+
+        const timeoutPromise = new Promise<string>((_, reject) => {
+          setTimeout(() => reject(new Error('Upload timed out. Please check your Firebase Storage security rules or internet connection.')), 12000);
+        });
+
+        finalPhotoUrl = await Promise.race([uploadTask(), timeoutPromise]);
+
       } catch (err: any) {
         console.error('Failed to upload profile photo to Firebase:', err);
-        setError('Failed to upload profile photo. Please ensure Firebase permissions are correctly set.');
+        setError(err.message || 'Failed to upload profile photo. Please ensure Firebase permissions are correctly set.');
         setIsSaving(false);
         return;
       }
