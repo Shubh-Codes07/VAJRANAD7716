@@ -4,8 +4,8 @@ import { Users, Calendar, Megaphone, Image as ImageIcon, BarChart2, ShieldAlert,
 import html2canvasSafe from '../services/html2canvasSafe';
 import jsPDF from 'jspdf';
 import { store, calculateAge } from '../services/store';
-import { storage, db } from '../services/firebase';
-import { ref, uploadBytesResumable, getDownloadURL } from 'firebase/storage';
+import { db } from '../services/firebase';
+import { supabase, uploadGalleryFile } from '../services/supabase';
 import { collection, doc, setDoc, deleteDoc, getDocs } from 'firebase/firestore';
 import { Member, AttendanceSession, AttendanceRecord, Notice, GalleryItem, Folder, Instrument, AttendanceType, EventCountdown, PerformanceRequest } from '../types';
 import ReportExporter from './ReportExporter';
@@ -644,41 +644,38 @@ export default function AdminPortal({ adminUser, onLogout }: AdminPortalProps) {
       const blob = new Blob([backupStr], { type: 'application/json' });
       const sizeStr = (blob.size / 1024).toFixed(1) + ' KB';
       const fileName = `Vajranad_Cloud_Backup_${new Date().toISOString().replace(/[:.]/g, '-')}.json`;
-      
-      const storageRef = ref(storage, `backups/${fileName}`);
-      const uploadTask = uploadBytesResumable(storageRef, blob);
-      
-      uploadTask.on('state_changed',
-        null,
-        (error) => {
-          console.error("Cloud backup upload error:", error);
-          alert(`Failed to upload backup to secure cloud storage: ${error.message}`);
-          setIsCloudBackingUp(false);
-        },
-        async () => {
-          try {
-            const downloadURL = await getDownloadURL(uploadTask.snapshot.ref);
-            const backupId = 'bck_' + Math.random().toString(36).substr(2, 9);
-            const backupDoc = {
-              id: backupId,
-              name: fileName,
-              url: downloadURL,
-              size: sizeStr,
-              createdAt: new Date().toISOString()
-            };
-            
-            await setDoc(doc(db, 'cloud_backups', backupId), backupDoc);
-            
-            alert('✓ Success: Secure database backup successfully uploaded and pinned to the Cloud!');
-            setIsCloudBackingUp(false);
-            loadCloudBackups();
-          } catch (err: any) {
-            alert(`Failed to save backup metadata: ${err.message}`);
-            setIsCloudBackingUp(false);
-          }
-        }
-      );
+      const filePath = `backups/${fileName}`;
+
+      console.log('[CLOUD BACKUP] Uploading backup to Supabase Storage:', filePath);
+
+      const { error: uploadError } = await supabase.storage
+        .from('profiles')
+        .upload(filePath, blob, { upsert: true, contentType: 'application/json' });
+
+      if (uploadError) {
+        throw new Error(uploadError.message);
+      }
+
+      const { data: urlData } = supabase.storage.from('profiles').getPublicUrl(filePath);
+      const downloadURL = urlData.publicUrl;
+
+      const backupId = 'bck_' + Math.random().toString(36).substr(2, 9);
+      const backupDoc = {
+        id: backupId,
+        name: fileName,
+        url: downloadURL,
+        size: sizeStr,
+        createdAt: new Date().toISOString()
+      };
+
+      await setDoc(doc(db, 'cloud_backups', backupId), backupDoc);
+
+      console.log('[CLOUD BACKUP] Backup uploaded successfully:', downloadURL);
+      alert('✓ Success: Secure database backup successfully uploaded and pinned to the Cloud!');
+      setIsCloudBackingUp(false);
+      loadCloudBackups();
     } catch (e: any) {
+      console.error('[CLOUD BACKUP] Backup failed:', e);
       alert(`Cloud backup failed: ${e.message}`);
       setIsCloudBackingUp(false);
     }
@@ -1726,7 +1723,7 @@ export default function AdminPortal({ adminUser, onLogout }: AdminPortalProps) {
                                       id="gallery-file-input"
                                       type="file"
                                       accept={galleryType === 'photo' ? "image/*" : "video/*"}
-                                      onChange={(e) => {
+                                      onChange={async (e) => {
                                         const file = e.target.files?.[0];
                                         if (file) {
                                           setFileError(null);
@@ -1742,50 +1739,18 @@ export default function AdminPortal({ adminUser, onLogout }: AdminPortalProps) {
                                             
                                             setIsProcessingFile(true);
                                             try {
-                                              const storageRef = ref(storage, `gallery/${Date.now()}_${file.name}`);
-                                              const uploadTask = uploadBytesResumable(storageRef, file);
-                                              currentUploadTaskRef.current = uploadTask;
-                                              
-                                              uploadTask.on('state_changed',
-                                                (snapshot) => {
-                                                  const progress = Math.round((snapshot.bytesTransferred / snapshot.totalBytes) * 100);
-                                                  setUploadProgress(progress);
-                                                },
-                                                (error) => {
-                                                  console.error("Firebase Storage Upload Error:", error);
-                                                  // Fall back to direct base64 if small enough (under 1MB), otherwise show clear guide
-                                                  if (file.size <= 1000 * 1024) {
-                                                    setFileError("Cloud Storage is not enabled or restricted. Saving locally in browser only.");
-                                                    const reader = new FileReader();
-                                                    reader.onloadend = () => {
-                                                      setGalleryUrl(reader.result as string);
-                                                      setIsProcessingFile(false);
-                                                      setUploadProgress(null);
-                                                    };
-                                                    reader.readAsDataURL(file);
-                                                  } else {
-                                                    setFileError(`Secure cloud storage is currently not configured or permissions are restricted. Files over 1MB cannot be saved directly without cloud storage. Please host your video (up to 11MB or more) on YouTube or Google Drive and paste the link in 'Enter Web URL' below! Error: ${error.message}`);
-                                                    setIsProcessingFile(false);
-                                                    setUploadProgress(null);
-                                                    e.target.value = '';
-                                                  }
-                                                },
-                                                async () => {
-                                                  try {
-                                                    const downloadURL = await getDownloadURL(uploadTask.snapshot.ref);
-                                                    setGalleryUrl(downloadURL);
-                                                    setIsProcessingFile(false);
-                                                    setUploadProgress(null);
-                                                  } catch (err: any) {
-                                                    setFileError(`Failed to retrieve secure upload link: ${err.message}`);
-                                                    setIsProcessingFile(false);
-                                                    setUploadProgress(null);
-                                                  }
-                                                }
+                                              const url = await uploadGalleryFile(
+                                                file,
+                                                file.name,
+                                                (pct) => setUploadProgress(pct < 100 ? pct : null)
                                               );
-                                            } catch (storErr: any) {
-                                              console.error("Storage ref initialization failed:", storErr);
+                                              setGalleryUrl(url);
+                                              setIsProcessingFile(false);
+                                              setUploadProgress(null);
+                                            } catch (uploadErr: any) {
+                                              console.error('[UPLOAD] Gallery video upload failed:', uploadErr);
                                               if (file.size <= 1000 * 1024) {
+                                                setFileError('Cloud Storage upload failed. Saving locally in browser only.');
                                                 const reader = new FileReader();
                                                 reader.onloadend = () => {
                                                   setGalleryUrl(reader.result as string);
@@ -1794,50 +1759,31 @@ export default function AdminPortal({ adminUser, onLogout }: AdminPortalProps) {
                                                 };
                                                 reader.readAsDataURL(file);
                                               } else {
-                                                setFileError(`Failed to start secure upload. Video is too large for database save. Please paste a web URL instead.`);
+                                                setFileError(`Secure cloud storage upload failed. Files over 1MB cannot be saved without cloud storage. Please host your video on YouTube or Google Drive and paste the link below. Error: ${uploadErr.message}`);
                                                 setIsProcessingFile(false);
                                                 setUploadProgress(null);
+                                                e.target.value = '';
                                               }
                                             }
                                           } else {
-                                            // Photo - compress automatically using Canvas to guarantee fast loads and prevent document limits
+                                            // Photo - compress first, then upload to Supabase
                                             setIsProcessingFile(true);
                                             const reader = new FileReader();
                                             reader.onloadend = () => {
-                                              compressImage(reader.result as string, (compressed) => {
+                                              compressImage(reader.result as string, async (compressed) => {
                                                 try {
                                                   const blob = dataURLtoBlob(compressed);
-                                                  const storageRef = ref(storage, `gallery/${Date.now()}_${file.name}.jpg`);
-                                                  const uploadTask = uploadBytesResumable(storageRef, blob);
-                                                  currentUploadTaskRef.current = uploadTask;
-                                                  
-                                                  uploadTask.on('state_changed',
-                                                    (snapshot) => {
-                                                      const progress = Math.round((snapshot.bytesTransferred / snapshot.totalBytes) * 100);
-                                                      setUploadProgress(progress);
-                                                    },
-                                                    (error) => {
-                                                      console.warn("Storage upload failed, using optimized base64 local fallback:", error);
-                                                      // Fall back to direct base64 since compressed photos are extremely small (~50KB)
-                                                      setGalleryUrl(compressed);
-                                                      setIsProcessingFile(false);
-                                                      setUploadProgress(null);
-                                                    },
-                                                    async () => {
-                                                      try {
-                                                        const downloadURL = await getDownloadURL(uploadTask.snapshot.ref);
-                                                        setGalleryUrl(downloadURL);
-                                                        setIsProcessingFile(false);
-                                                        setUploadProgress(null);
-                                                      } catch (err: any) {
-                                                        setGalleryUrl(compressed);
-                                                        setIsProcessingFile(false);
-                                                        setUploadProgress(null);
-                                                      }
-                                                    }
+                                                  const url = await uploadGalleryFile(
+                                                    blob,
+                                                    `${file.name}.jpg`,
+                                                    (pct) => setUploadProgress(pct < 100 ? pct : null)
                                                   );
-                                                } catch (blobErr) {
-                                                  // Fall back to direct base64
+                                                  setGalleryUrl(url);
+                                                  setIsProcessingFile(false);
+                                                  setUploadProgress(null);
+                                                } catch (blobErr: any) {
+                                                  console.warn('[UPLOAD] Supabase photo upload failed, using Base64 fallback:', blobErr.message);
+                                                  // Fall back to direct base64 since compressed photos are small (~50KB)
                                                   setGalleryUrl(compressed);
                                                   setIsProcessingFile(false);
                                                   setUploadProgress(null);

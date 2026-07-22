@@ -1,7 +1,6 @@
 import { initializeApp } from 'firebase/app';
 import { getFirestore, doc, getDocFromServer } from 'firebase/firestore';
 import { getAuth } from 'firebase/auth';
-import { getStorage } from 'firebase/storage';
 
 // Your web app's Firebase configuration with environment variable support
 const firebaseConfig = {
@@ -26,7 +25,6 @@ console.log('[FIREBASE INIT] Initializing with config:', maskedConfig);
 const app = initializeApp(firebaseConfig);
 export const db = getFirestore(app);
 export const auth = getAuth(app);
-export const storage = getStorage(app);
 
 // Custom Error Handler
 export enum OperationType {
