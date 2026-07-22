@@ -54,7 +54,14 @@ app.post('/api/otp/send', async (req, res) => {
 
   try {
     const transporter = nodemailer.createTransport({
-      service: 'gmail',
+      // Explicit config instead of `service: 'gmail'` to force IPv4 on cloud hosts
+      // (Render/Railway containers may fail with ENETUNREACH on IPv6 Gmail resolution)
+      host: 'smtp.gmail.com',
+      port: 465,
+      secure: true,         // true for port 465 (SSL), false for port 587 (STARTTLS)
+      family: 4,            // Force IPv4 — prevents ENETUNREACH on IPv6-disabled hosts
+      connectionTimeout: 10000, // 10s to establish connection
+      socketTimeout: 15000,     // 15s for socket inactivity
       auth: {
         user: smtpUser,
         pass: smtpPass,
