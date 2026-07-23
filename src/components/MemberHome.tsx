@@ -305,12 +305,39 @@ export default function MemberHome({ currentUser, onLogout, onUpdateUser }: Memb
     // and causes toDataURL() to throw a SecurityError on any cross-origin image.
     let canvas: HTMLCanvasElement;
     try {
-      console.log('[CARD EXPORT] Waiting for fonts to load...');
+      console.log('[CARD EXPORT] Waiting for document.fonts.ready...');
       await document.fonts.ready;
       
-      // Give a small buffer for the browser layout to settle after fonts finish loading
-      // This prevents the "cramped/overlapping text" issue common in html2canvas
-      await new Promise(resolve => setTimeout(resolve, 150));
+      // Explicitly verify and load the specific fonts used in the card to prevent cramped text.
+      // From index.css and Tailwind defaults:
+      // - Member Name (font-serif): "Georgia", "Times New Roman"
+      // - Contact Details (font-mono): ui-monospace, Consolas, Courier New
+      // - Body/Badges (font-sans): "Inter", "Noto Sans Devanagari"
+      const fontsToCheck = [
+        '1em "Inter"', 
+        '1em "Georgia"',
+        '1em ui-monospace',
+        '1em Consolas'
+      ];
+
+      for (const font of fontsToCheck) {
+        const isLoaded = document.fonts.check(font);
+        console.log(`[CARD EXPORT] Font check for ${font}: ${isLoaded ? 'Loaded ✓' : 'Pending/System Font'}`);
+        if (!isLoaded) {
+          try {
+            // Force the browser to load it if it's a web font that hasn't painted yet
+            await document.fonts.load(font);
+            console.log(`[CARD EXPORT] Force loaded ${font} ✓`);
+          } catch (e) {
+            console.log(`[CARD EXPORT] Could not force load ${font} (likely a system font or unavailable)`);
+          }
+        }
+      }
+      
+      // Give a robust buffer for the browser layout to recalculate and settle after font swaps
+      // This explicitly prevents the "overlapping text" reflow issue in html2canvas
+      console.log('[CARD EXPORT] Waiting 250ms for layout to settle...');
+      await new Promise(resolve => setTimeout(resolve, 250));
 
       console.log('[CARD EXPORT] Calling html2canvas...');
       canvas = await html2canvasSafe(memberCardRef.current, {
