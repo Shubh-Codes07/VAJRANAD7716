@@ -1,9 +1,19 @@
 import html2canvas from 'html2canvas';
 
-// Helper to convert oklch colors using the browser's native canvas rendering engine
+// Helper to detect if a CSS string contains modern color functions unsupported by html2canvas
+function hasUnsupportedColor(str: string): boolean {
+  if (!str) return false;
+  return str.includes('oklch') || 
+         str.includes('oklab') || 
+         str.includes('lch') || 
+         str.includes('lab') || 
+         str.includes('color(');
+}
+
+// Helper to convert oklch/oklab/etc colors using the browser's native canvas rendering engine
 function colorToRgb(colorStr: string): string {
   if (!colorStr) return colorStr;
-  if (!colorStr.includes('oklch') && !colorStr.includes('lch')) {
+  if (!hasUnsupportedColor(colorStr)) {
     return colorStr;
   }
   try {
@@ -59,14 +69,14 @@ const createPatchedGetComputedStyle = (
         // they throw "TypeError: Illegal invocation".
         const val = Reflect.get(target, prop, target);
         
-        if (typeof val === 'string' && (val.includes('oklch') || val.includes('lch'))) {
+        if (typeof val === 'string' && hasUnsupportedColor(val)) {
           return colorToRgb(val);
         }
         if (typeof val === 'function') {
           if (prop === 'getPropertyValue') {
             return function(propertyName: string) {
               const originalValue = target.getPropertyValue(propertyName);
-              if (typeof originalValue === 'string' && (originalValue.includes('oklch') || originalValue.includes('lch'))) {
+              if (typeof originalValue === 'string' && hasUnsupportedColor(originalValue)) {
                 return colorToRgb(originalValue);
               }
               return originalValue;
