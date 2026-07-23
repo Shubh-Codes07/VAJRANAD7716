@@ -51,7 +51,14 @@ const createPatchedGetComputedStyle = (
 
     return new Proxy(style, {
       get(target, prop, receiver) {
-        const val = Reflect.get(target, prop, receiver);
+        // Temporary log to trace exact property access causing issues
+        console.log(`[html2canvasSafe Proxy] Accessing property: ${String(prop)}`);
+
+        // Fix: Pass 'target' instead of 'receiver' (the Proxy) to Reflect.get.
+        // Native DOM getters check the 'this' context, and if they receive the Proxy,
+        // they throw "TypeError: Illegal invocation".
+        const val = Reflect.get(target, prop, target);
+        
         if (typeof val === 'string' && (val.includes('oklch') || val.includes('lch'))) {
           return colorToRgb(val);
         }
@@ -65,9 +72,7 @@ const createPatchedGetComputedStyle = (
               return originalValue;
             };
           }
-          // Fix: Bind all other native methods (like item, getPropertyPriority, etc.) 
-          // to the original CSSStyleDeclaration target to prevent "TypeError: Illegal invocation"
-          // when html2canvas calls them internally.
+          // Fix: Bind all other native methods to the target
           return val.bind(target);
         }
         return val;
