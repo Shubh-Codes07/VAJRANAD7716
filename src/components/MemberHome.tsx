@@ -246,52 +246,87 @@ export default function MemberHome({ currentUser, onLogout, onUpdateUser }: Memb
 
   // Shared: capture the member card as a high-quality canvas (handles CORS images)
   const captureCardCanvas = async (): Promise<HTMLCanvasElement> => {
-    if (!memberCardRef.current) throw new Error('Card not found');
+    if (!memberCardRef.current) throw new Error('Card element (memberCardRef) not found in DOM');
 
-    // Step 1: Collect all img elements in the card
+    // Step 1: Collect all <img> elements inside the card
     const imgs = Array.from(memberCardRef.current.querySelectorAll('img')) as HTMLImageElement[];
     const origSrcs: string[] = imgs.map(img => img.src);
+    const origCrossOrigins: (string | null)[] = imgs.map(img => img.getAttribute('crossorigin'));
     const blobUrls: string[] = [];
 
-    // Step 2: Replace each external src with a local blob URL to bypass CORS
+    // Step 2: Convert every external URL to a same-origin blob URL.
+    // This is the only reliable way to prevent canvas taint from cross-origin images
+    // (Supabase Storage, Unsplash, etc.) even when the server sends CORS headers.
     for (let i = 0; i < imgs.length; i++) {
       const src = origSrcs[i];
-      if (src && src.startsWith('http')) {
+      if (src && (src.startsWith('http') || src.startsWith('https'))) {
         try {
-          const resp = await fetch(src, { mode: 'cors', cache: 'no-cache' });
+          console.log(`[CARD EXPORT] Fetching image ${i + 1}/${imgs.length}: ${src.slice(0, 60)}...`);
+          const resp = await fetch(src, { mode: 'cors', cache: 'force-cache' });
+          if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
           const blob = await resp.blob();
           const blobUrl = URL.createObjectURL(blob);
           blobUrls.push(blobUrl);
+
+          // Ensure crossOrigin is set before changing src (order matters for CORS policy)
+          imgs[i].crossOrigin = 'anonymous';
           imgs[i].src = blobUrl;
-          // Wait for img to reload with the blob URL
-          await new Promise<void>((res) => {
-            if (imgs[i].complete) { res(); return; }
-            imgs[i].onload = () => res();
-            imgs[i].onerror = () => res();
+
+          // Always wait for the new src to finish loading — never rely on img.complete
+          // which still reflects the old src until the browser processes the assignment.
+          await new Promise<void>((resolve) => {
+            // Give the browser a tick to start the load, then listen
+            const onDone = () => {
+              imgs[i].removeEventListener('load', onDone);
+              imgs[i].removeEventListener('error', onDone);
+              resolve();
+            };
+            imgs[i].addEventListener('load', onDone, { once: true });
+            imgs[i].addEventListener('error', onDone, { once: true });
+            // Safety net: if it was already complete with the blob URL (cached), resolve immediately
+            if (imgs[i].complete && imgs[i].naturalWidth > 0) {
+              imgs[i].removeEventListener('load', onDone);
+              imgs[i].removeEventListener('error', onDone);
+              resolve();
+            }
           });
-        } catch {
-          blobUrls.push(src);
+          console.log(`[CARD EXPORT] Image ${i + 1} loaded as blob URL ✓`);
+        } catch (fetchErr: any) {
+          console.warn(`[CARD EXPORT] Could not fetch image ${i + 1} as blob (${fetchErr?.message}). Proceeding with original src.`);
+          blobUrls.push(src); // keep original so we don't break the img
         }
       } else {
-        blobUrls.push(src);
+        blobUrls.push(src); // local/data URL — no CORS concern
       }
     }
 
-    // Step 3: Capture with html2canvas
+    // Step 3: Capture the card with html2canvas
+    // IMPORTANT: allowTaint must be FALSE — setting it to true disables useCORS entirely
+    // and causes toDataURL() to throw a SecurityError on any cross-origin image.
+    let canvas: HTMLCanvasElement;
     try {
-      const canvas = await html2canvasSafe(memberCardRef.current, {
+      console.log('[CARD EXPORT] Calling html2canvas...');
+      canvas = await html2canvasSafe(memberCardRef.current, {
         scale: 3,
         useCORS: true,
-        allowTaint: true,
+        allowTaint: false,   // ← must be false; true defeats useCORS and taints the canvas
         backgroundColor: null,
         logging: false,
       });
-      return canvas;
+      console.log('[CARD EXPORT] html2canvas capture complete ✓');
     } finally {
-      // Step 4: Restore original src values and revoke blob URLs
-      imgs.forEach((img, i) => { img.src = origSrcs[i]; });
+      // Step 4: Always restore original src values and revoke blob URLs (even on error)
+      imgs.forEach((img, i) => {
+        img.src = origSrcs[i];
+        if (origCrossOrigins[i] !== null) {
+          img.setAttribute('crossorigin', origCrossOrigins[i]!);
+        } else {
+          img.removeAttribute('crossorigin');
+        }
+      });
       blobUrls.forEach(url => { if (url.startsWith('blob:')) URL.revokeObjectURL(url); });
     }
+    return canvas;
   };
 
   // Download member card as JPG
@@ -303,9 +338,11 @@ export default function MemberHome({ currentUser, onLogout, onUpdateUser }: Memb
       link.download = `Vajranad_MemberCard_${currentUser.name.replace(/\s+/g, '_')}.jpg`;
       link.href = canvas.toDataURL('image/jpeg', 0.95);
       link.click();
-    } catch (e) {
-      console.error('Failed to download card as JPG:', e);
-      alert('Failed to generate image. Please try again.');
+      console.log('[CARD EXPORT] JPG downloaded successfully ✓');
+    } catch (e: any) {
+      const msg = e instanceof Error ? `${e.name}: ${e.message}` : String(e);
+      console.error('[CARD EXPORT] JPG generation failed:', msg, e);
+      alert(`Failed to generate image.\n\nReason: ${msg}\n\nCheck the browser console for details.`);
     } finally {
       setIsDownloadingJpg(false);
     }
@@ -322,9 +359,11 @@ export default function MemberHome({ currentUser, onLogout, onUpdateUser }: Memb
       const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: [cardWidthMm, cardHeightMm] });
       pdf.addImage(imgData, 'JPEG', 0, 0, cardWidthMm, cardHeightMm);
       pdf.save(`Vajranad_MemberCard_${currentUser.name.replace(/\s+/g, '_')}.pdf`);
-    } catch (e) {
-      console.error('Failed to download card as PDF:', e);
-      alert('Failed to generate PDF. Please try again.');
+      console.log('[CARD EXPORT] PDF downloaded successfully ✓');
+    } catch (e: any) {
+      const msg = e instanceof Error ? `${e.name}: ${e.message}` : String(e);
+      console.error('[CARD EXPORT] PDF generation failed:', msg, e);
+      alert(`Failed to generate PDF.\n\nReason: ${msg}\n\nCheck the browser console for details.`);
     } finally {
       setIsDownloadingPdf(false);
     }
