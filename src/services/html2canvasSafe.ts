@@ -21,23 +21,31 @@ function colorToRgb(colorStr: string): string {
   }
 }
 
-const nativeGetComputedStyle = window.getComputedStyle;
+// FIX: bind to window immediately — extracting a native method without .bind()
+// creates a detached function that throws "TypeError: Illegal invocation" when
+// html2canvas calls it from any context other than the main window.
+const nativeGetComputedStyle = window.getComputedStyle.bind(window);
 
-// Proxied getComputedStyle to intercept oklch/lch colors and return rgba fallback
-const createPatchedGetComputedStyle = (originalGetComputedStyle: typeof window.getComputedStyle) => {
+// Proxied getComputedStyle that intercepts oklch/lch colors and returns rgba fallbacks.
+// Accepts an ALREADY-BOUND version of getComputedStyle — never a raw detached reference.
+const createPatchedGetComputedStyle = (
+  boundGetComputedStyle: (elt: Element, pseudoElt?: string | null) => CSSStyleDeclaration
+) => {
   return function (this: any, elt: Element, pseudoElt?: string | null): CSSStyleDeclaration {
     let style: CSSStyleDeclaration;
     try {
-      // Try invoking with current context (ideal for standard lookups)
-      style = originalGetComputedStyle.call(this, elt, pseudoElt);
+      // Call the pre-bound function directly — .call(this,...) is intentionally removed
+      // because the function is already bound to its owning window; using a different
+      // `this` here was causing the "Illegal invocation" error.
+      style = boundGetComputedStyle(elt, pseudoElt ?? null);
     } catch (e) {
       try {
-        // Fallback: invoke with elements' actual defaultView/window
+        // Fallback: re-bind to the element's actual window and retry
         const win = elt.ownerDocument?.defaultView || window;
-        style = originalGetComputedStyle.call(win, elt, pseudoElt);
+        style = win.getComputedStyle.bind(win)(elt, pseudoElt ?? null);
       } catch (e2) {
-        // Ultimate fallback: call the main window's native getComputedStyle bound to the main window
-        style = nativeGetComputedStyle.call(window, elt, pseudoElt);
+        // Ultimate fallback: main window's bound native
+        style = nativeGetComputedStyle(elt, pseudoElt ?? null);
       }
     }
 
@@ -66,19 +74,23 @@ export default async function html2canvasSafe(
   element: HTMLElement,
   options: any = {}
 ): Promise<HTMLCanvasElement> {
-  const originalGetComputedStyle = window.getComputedStyle;
+  // FIX: bind before storing — never store a detached native method reference
+  const originalGetComputedStyle = window.getComputedStyle.bind(window);
   const patchedGetComputedStyle = createPatchedGetComputedStyle(originalGetComputedStyle);
 
-  // Patch the main window
+  // Patch the main window's getComputedStyle
   window.getComputedStyle = patchedGetComputedStyle;
 
-  // Intercept the onclone callback to also patch the iframe/cloned document's window
+  // Intercept onclone to also patch the iframe/cloned document's window
   const originalOnClone = options.onclone;
   options.onclone = async (clonedDoc: Document, clonedElt: HTMLElement) => {
     if (clonedDoc.defaultView) {
-      clonedDoc.defaultView.getComputedStyle = createPatchedGetComputedStyle(
-        clonedDoc.defaultView.getComputedStyle || originalGetComputedStyle
-      );
+      const clonedWin = clonedDoc.defaultView;
+      // FIX: bind to the iframe's own window before passing to createPatchedGetComputedStyle.
+      // Without .bind(clonedWin), the extracted function throws "Illegal invocation" when
+      // html2canvas calls it from inside the cloned document context.
+      const boundClonedGCS = (clonedWin.getComputedStyle || nativeGetComputedStyle).bind(clonedWin);
+      clonedWin.getComputedStyle = createPatchedGetComputedStyle(boundClonedGCS);
     }
     if (originalOnClone) {
       await originalOnClone(clonedDoc, clonedElt);
@@ -86,10 +98,16 @@ export default async function html2canvasSafe(
   };
 
   try {
+    console.log('[html2canvasSafe] Starting capture with patched getComputedStyle...');
     const canvas = await html2canvas(element, options);
+    console.log('[html2canvasSafe] Capture complete ✓');
     return canvas;
+  } catch (err: any) {
+    const msg = err instanceof Error ? `${err.name}: ${err.message}` : String(err);
+    console.error('[html2canvasSafe] html2canvas threw an error:', msg, err);
+    throw err; // re-throw so caller's catch shows the specific message
   } finally {
-    // Restore the original getComputedStyle
+    // Always restore original — even if html2canvas throws
     window.getComputedStyle = originalGetComputedStyle;
   }
 }
