@@ -10,25 +10,45 @@ function hasUnsupportedColor(str: string): boolean {
          str.includes('color(');
 }
 
-// Helper to convert oklch/oklab/etc colors using the browser's native canvas rendering engine
+// Helper to convert oklch/oklab/etc colors using the browser's native canvas rendering engine.
+// This uses a regex to find and convert colors even if they are embedded inside complex
+// properties like "linear-gradient(...)".
 function colorToRgb(colorStr: string): string {
   if (!colorStr) return colorStr;
   if (!hasUnsupportedColor(colorStr)) {
     return colorStr;
   }
-  try {
-    const canvas = document.createElement('canvas');
-    canvas.width = 1;
-    canvas.height = 1;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return colorStr;
-    ctx.fillStyle = colorStr;
-    ctx.fillRect(0, 0, 1, 1);
-    const [r, g, b, a] = ctx.getImageData(0, 0, 1, 1).data;
-    return `rgba(${r}, ${g}, ${b}, ${a / 255})`;
-  } catch (e) {
-    return colorStr;
+
+  // Regex matches oklch(), oklab(), lch(), lab(), color() and allows up to 1 level of nested parens (e.g. calc())
+  const colorFuncRegex = /(?:oklch|oklab|lch|lab|color)\((?:[^)(]+|\([^)(]*\))*\)/gi;
+  
+  const convertedStr = colorStr.replace(colorFuncRegex, (match) => {
+    try {
+      const canvas = document.createElement('canvas');
+      canvas.width = 1;
+      canvas.height = 1;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return match;
+      
+      ctx.fillStyle = match;
+      ctx.fillRect(0, 0, 1, 1);
+      const [r, g, b, a] = ctx.getImageData(0, 0, 1, 1).data;
+      
+      const rgbStr = `rgba(${r}, ${g}, ${b}, ${a / 255})`;
+      console.log(`[colorToRgb] Converted "${match}" -> "${rgbStr}"`);
+      return rgbStr;
+    } catch (e) {
+      console.error(`[colorToRgb] Failed to convert "${match}"`, e);
+      return match;
+    }
+  });
+
+  // Only log if the string actually changed (to avoid spamming logs for unmodified complex strings)
+  if (convertedStr !== colorStr) {
+    console.log(`[colorToRgb] Full property conversion:\n  From: ${colorStr}\n  To:   ${convertedStr}`);
   }
+  
+  return convertedStr;
 }
 
 // FIX: bind to window immediately — extracting a native method without .bind()

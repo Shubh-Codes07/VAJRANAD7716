@@ -305,6 +305,13 @@ export default function MemberHome({ currentUser, onLogout, onUpdateUser }: Memb
     // and causes toDataURL() to throw a SecurityError on any cross-origin image.
     let canvas: HTMLCanvasElement;
     try {
+      console.log('[CARD EXPORT] Waiting for fonts to load...');
+      await document.fonts.ready;
+      
+      // Give a small buffer for the browser layout to settle after fonts finish loading
+      // This prevents the "cramped/overlapping text" issue common in html2canvas
+      await new Promise(resolve => setTimeout(resolve, 150));
+
       console.log('[CARD EXPORT] Calling html2canvas...');
       canvas = await html2canvasSafe(memberCardRef.current, {
         scale: 3,
