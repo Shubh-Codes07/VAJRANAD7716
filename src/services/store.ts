@@ -577,9 +577,84 @@ class VajranadStore {
     return active;
   }
 
+  /**
+   * Returns an existing session for the given type+date (checking Supabase first),
+   * or creates a new one if none exists. Ensures only ONE session per type per day
+   * regardless of which device or user triggers the scan.
+   */
+  public async createOrJoinSession(type: AttendanceType, title: string, creatorName: string): Promise<AttendanceSession> {
+    const weekdays = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+    const today = new Date();
+    const dateStr = today.toISOString().split('T')[0];
+    const dayStr = weekdays[today.getDay()];
+
+    // --- Step 1: Check Supabase for an existing session (cross-device source of truth) ---
+    console.log(`[SESSION] Looking for existing ${type} session on ${dateStr} in Supabase...`);
+    const remoteSessions = await getAllSessionsFromSupabase();
+    const remoteExisting = remoteSessions.find(s => s.type === type && s.date === dateStr);
+
+    if (remoteExisting) {
+      console.log(`[SESSION] ✓ Found existing ${type} session in Supabase: id=${remoteExisting.id}, createdBy=${remoteExisting.createdBy}. Re-joining.`);
+
+      // Sync into local cache: deactivate others, activate this one
+      let sessions = this.getSessions();
+      sessions = sessions.filter(s => s.id !== remoteExisting.id); // avoid duplication
+      sessions.forEach(s => { s.isActive = false; });
+      remoteExisting.isActive = true;
+      sessions.push(remoteExisting);
+      localStorage.setItem(this.sessionsKey, JSON.stringify(sessions));
+
+      // Persist active flag to Supabase
+      this.saveSessionToFirestore(remoteExisting);
+      return remoteExisting;
+    }
+
+    // --- Step 2: No session in Supabase — check local cache as a fast fallback ---
+    const sessions = this.getSessions();
+    const localExisting = sessions.find(s => s.type === type && s.date === dateStr);
+
+    if (localExisting) {
+      console.log(`[SESSION] ✓ Found existing ${type} session in local cache: id=${localExisting.id}. Re-joining and syncing to Supabase.`);
+      sessions.forEach(s => { s.isActive = s.id === localExisting.id; });
+      localExisting.isActive = true;
+      localStorage.setItem(this.sessionsKey, JSON.stringify(sessions));
+      this.saveSessionToFirestore(localExisting); // push up to Supabase so others can see it
+      return localExisting;
+    }
+
+    // --- Step 3: No session anywhere — create a brand new one ---
+    console.log(`[SESSION] No existing ${type} session found for ${dateStr}. Creating new session...`);
+
+    // Deactivate all currently active sessions first
+    sessions.forEach(s => {
+      if (s.isActive) {
+        s.isActive = false;
+        this.saveSessionToFirestore(s);
+      }
+    });
+
+    const newSession: AttendanceSession = {
+      id: 'sess_' + Math.random().toString(36).substr(2, 9),
+      type,
+      title: title.trim(),
+      date: dateStr,
+      day: dayStr,
+      isActive: true,
+      createdBy: creatorName
+    };
+
+    sessions.push(newSession);
+    localStorage.setItem(this.sessionsKey, JSON.stringify(sessions));
+    this.saveSessionToFirestore(newSession);
+
+    console.log(`[SESSION] ✓ Created new ${type} session: id=${newSession.id}`);
+    return newSession;
+  }
+
+  /** @deprecated Use createOrJoinSession instead. Kept for sync-only internal calls. */
   public createSession(type: AttendanceType, title: string, creatorName: string): AttendanceSession {
     const sessions = this.getSessions();
-    
+
     // Deactivate all previous sessions
     sessions.forEach(s => {
       if (s.isActive) {
@@ -593,9 +668,10 @@ class VajranadStore {
     const dateStr = today.toISOString().split('T')[0];
     const dayStr = weekdays[today.getDay()];
 
-    // Create only one session report per day separate for practice and performance
+    // Join existing local session if found
     const existingSession = sessions.find(s => s.type === type && s.date === dateStr);
     if (existingSession) {
+      console.log(`[SESSION] ✓ Joined existing local ${type} session: ${existingSession.id}`);
       existingSession.isActive = true;
       this.saveSessionToFirestore(existingSession);
       localStorage.setItem(this.sessionsKey, JSON.stringify(sessions));
@@ -614,10 +690,8 @@ class VajranadStore {
 
     sessions.push(newSession);
     localStorage.setItem(this.sessionsKey, JSON.stringify(sessions));
-
-    // Persist to Firestore
     this.saveSessionToFirestore(newSession);
-
+    console.log(`[SESSION] ✓ Created new ${type} session: ${newSession.id}`);
     return newSession;
   }
 
@@ -687,28 +761,36 @@ class VajranadStore {
 
     const session = sessions.find(s => s.id === sessionId);
     if (!session) {
+      console.warn(`[SCAN] ✗ Session not found: ${sessionId}`);
       return { success: false, error: 'Active attendance session not found.' };
     }
 
-    // Find member by permanent QR Code
+    // Find member by permanent QR Code or member id
     const member = members.find(m => m.qrCode === qrCode || m.id === qrCode);
     if (!member) {
+      console.warn(`[SCAN] ✗ Invalid QR code scanned: ${qrCode}`);
       return { success: false, error: 'Invalid QR Code or Membership Card.' };
     }
 
     if (!member.isActive) {
+      console.warn(`[SCAN] ✗ Disabled member scanned: ${member.name}`);
       return { success: false, error: 'Member is disabled by Administrator.' };
     }
 
-    // Check duplicate scan (member can scan only once per session type per day)
-    const duplicateToday = records.find(r => r.memberId === member.id && r.date === session.date && r.type === session.type);
+    // Duplicate check: member + same session TYPE + same DATE (cross-session deduplication)
+    // This correctly handles the case where multiple sessions were accidentally created
+    // for the same type+day — the member is still considered "already present".
+    const duplicateToday = records.find(
+      r => r.memberId === member.id && r.date === session.date && r.type === session.type
+    );
     if (duplicateToday) {
-      return { 
-        success: true, 
-        alreadyMarked: true, 
-        record: duplicateToday, 
+      console.log(`[SCAN] ⚠ ${member.name} already marked present for ${session.type} on ${session.date} at ${duplicateToday.scanTime} (scanned by ${duplicateToday.scannedBy})`);
+      return {
+        success: true,
+        alreadyMarked: true,
+        record: duplicateToday,
         member,
-        error: `Already marked for this session (${session.type})`
+        error: `Already marked present for ${session.type} on ${session.date} at ${duplicateToday.scanTime}`
       };
     }
 
@@ -729,11 +811,66 @@ class VajranadStore {
 
     records.push(newRecord);
     localStorage.setItem(this.recordsKey, JSON.stringify(records));
-
-    // Persist to Firestore
     this.saveRecordToFirestore(newRecord);
 
+    console.log(`[SCAN] ✓ ${member.name} marked present for ${session.type} on ${session.date} at ${timeStr} (scanned by ${scannedBy})`);
     return { success: true, record: newRecord, member };
+  }
+
+  /**
+   * Admin utility: merges duplicate sessions for the same type+date.
+   * Keeps the oldest session, re-parents all records to it, deletes duplicates.
+   * Call this from the admin panel to clean up already-created duplicate sessions.
+   */
+  public async mergeSessionsForTypeAndDate(type: AttendanceType, date: string): Promise<{ merged: number; canonicalId: string } | null> {
+    const sessions = this.getSessions();
+    const duplicates = sessions
+      .filter(s => s.type === type && s.date === date)
+      .sort((a, b) => a.id.localeCompare(b.id)); // oldest id first (sess_ + random, deterministic enough)
+
+    if (duplicates.length <= 1) {
+      console.log(`[MERGE] No duplicates found for ${type} on ${date}.`);
+      return null;
+    }
+
+    const canonical = duplicates[0];
+    const toRemove = duplicates.slice(1);
+    console.log(`[MERGE] Canonical session: ${canonical.id}. Merging ${toRemove.length} duplicate(s): ${toRemove.map(s => s.id).join(', ')}`);
+
+    // Re-parent records from duplicate sessions to the canonical one
+    let records = this.getAttendanceRecords();
+    let reparented = 0;
+    records = records.map(r => {
+      if (toRemove.some(s => s.id === r.sessionId)) {
+        // Prevent creating duplicate records in the canonical session
+        const alreadyInCanonical = records.some(
+          existing => existing.memberId === r.memberId && existing.sessionId === canonical.id
+        );
+        if (!alreadyInCanonical) {
+          reparented++;
+          const updated = { ...r, sessionId: canonical.id };
+          this.saveRecordToFirestore(updated);
+          return updated;
+        }
+        // If duplicate member entry: drop it (keep only canonical)
+        console.log(`[MERGE] Dropping duplicate record for member ${r.memberName} (already in canonical session).`);
+        deleteRecordFromSupabase(r.id);
+        return null;
+      }
+      return r;
+    }).filter(Boolean) as AttendanceRecord[];
+
+    localStorage.setItem(this.recordsKey, JSON.stringify(records));
+
+    // Delete duplicate sessions from localStorage and Supabase
+    const remainingSessions = sessions.filter(s => !toRemove.some(d => d.id === s.id));
+    localStorage.setItem(this.sessionsKey, JSON.stringify(remainingSessions));
+    for (const dup of toRemove) {
+      await deleteSessionFromSupabase(dup.id);
+    }
+
+    console.log(`[MERGE] ✓ Done. Re-parented ${reparented} record(s) to canonical session ${canonical.id}. Deleted ${toRemove.length} duplicate session(s).`);
+    return { merged: toRemove.length, canonicalId: canonical.id };
   }
 
   // --- Notices API ---

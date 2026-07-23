@@ -153,7 +153,7 @@ export default function QRScannerComp({ currentUser, onScanComplete }: QRScanner
   }, [scannerActive, selectedCameraId]);
 
   // Quick Start a scanning session from modal selection
-  const handleQuickStartSession = (type: AttendanceType) => {
+  const handleQuickStartSession = async (type: AttendanceType) => {
     if (!hasPermission) {
       alert('You are not authorized to scan attendance.');
       return;
@@ -173,8 +173,10 @@ export default function QRScannerComp({ currentUser, onScanComplete }: QRScanner
       title = `Maintenance & Meeting - ${dateStr} (${dayStr})`;
     }
 
-    const newSession = store.createSession(type, title, currentUser.name);
-    setActiveSession(newSession);
+    console.log(`[QR SCANNER] Starting/joining ${type} session...`);
+    const session = await store.createOrJoinSession(type, title, currentUser.name);
+    console.log(`[QR SCANNER] Session ready: id=${session.id}, createdBy=${session.createdBy}`);
+    setActiveSession(session);
     setScannerActive(true);
     setShowTypeSelectorModal(false);
   };
