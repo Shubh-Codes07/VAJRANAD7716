@@ -55,14 +55,20 @@ const createPatchedGetComputedStyle = (
         if (typeof val === 'string' && (val.includes('oklch') || val.includes('lch'))) {
           return colorToRgb(val);
         }
-        if (typeof val === 'function' && prop === 'getPropertyValue') {
-          return function(propertyName: string) {
-            const originalValue = target.getPropertyValue(propertyName);
-            if (typeof originalValue === 'string' && (originalValue.includes('oklch') || originalValue.includes('lch'))) {
-              return colorToRgb(originalValue);
-            }
-            return originalValue;
-          };
+        if (typeof val === 'function') {
+          if (prop === 'getPropertyValue') {
+            return function(propertyName: string) {
+              const originalValue = target.getPropertyValue(propertyName);
+              if (typeof originalValue === 'string' && (originalValue.includes('oklch') || originalValue.includes('lch'))) {
+                return colorToRgb(originalValue);
+              }
+              return originalValue;
+            };
+          }
+          // Fix: Bind all other native methods (like item, getPropertyPriority, etc.) 
+          // to the original CSSStyleDeclaration target to prevent "TypeError: Illegal invocation"
+          // when html2canvas calls them internally.
+          return val.bind(target);
         }
         return val;
       }
