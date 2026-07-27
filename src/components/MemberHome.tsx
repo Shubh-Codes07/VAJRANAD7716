@@ -847,33 +847,7 @@ export default function MemberHome({ currentUser, onLogout, onUpdateUser }: Memb
                   </div>
                 </div>
 
-                {/* Download Buttons */}
-                <div className="flex gap-3 w-full max-w-[320px]">
-                  <button
-                    onClick={handleDownloadCardJpg}
-                    disabled={isDownloadingJpg || isDownloadingPdf}
-                    className="flex-1 flex items-center justify-center gap-2 bg-[#800000] hover:bg-[#5d0000] disabled:opacity-60 text-[#D4AF37] border-2 border-[#D4AF37] font-bold py-3 px-4 rounded-2xl text-xs uppercase tracking-wider transition-all shadow-lg cursor-pointer"
-                  >
-                    {isDownloadingJpg ? (
-                      <div className="w-4 h-4 border-2 border-[#D4AF37] border-t-transparent rounded-full animate-spin" />
-                    ) : (
-                      <FileImage size={16} />
-                    )}
-                    {isDownloadingJpg ? 'Saving...' : 'Save as JPG'}
-                  </button>
-                  <button
-                    onClick={handleDownloadCardPdf}
-                    disabled={isDownloadingJpg || isDownloadingPdf}
-                    className="flex-1 flex items-center justify-center gap-2 bg-white hover:bg-[#FFFDD0] disabled:opacity-60 text-[#800000] border-2 border-[#800000] font-bold py-3 px-4 rounded-2xl text-xs uppercase tracking-wider transition-all shadow-lg cursor-pointer"
-                  >
-                    {isDownloadingPdf ? (
-                      <div className="w-4 h-4 border-2 border-[#800000] border-t-transparent rounded-full animate-spin" />
-                    ) : (
-                      <FileText size={16} />
-                    )}
-                    {isDownloadingPdf ? 'Saving...' : 'Save as PDF'}
-                  </button>
-                </div>
+
 
                 <p className="text-xs text-neutral-500 font-medium text-center px-6 leading-relaxed">
                   Present this secure permanent membership card to any scanning committee member to register practice or performance attendance.
