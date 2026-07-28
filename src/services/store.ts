@@ -808,7 +808,13 @@ class VajranadStore {
       performancePct,
       meetingPct,
       overallPct,
-      shortages
+      shortages,
+      practiceAttended,
+      practiceHeld,
+      performanceAttended,
+      performanceHeld,
+      meetingAttended,
+      meetingHeld
     };
   }
 

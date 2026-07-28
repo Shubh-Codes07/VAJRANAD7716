@@ -343,7 +343,7 @@ export default function AdminPortal({ adminUser, onLogout }: AdminPortalProps) {
       const targetPercent = parseInt(minAttendanceFilter, 10);
       if (!isNaN(targetPercent)) {
         const stats = store.getMemberAttendanceStats(m.id);
-        matchesAttendance = stats.overallPct >= targetPercent && stats.overallPct < targetPercent + 10;
+        matchesAttendance = stats.overallPct <= targetPercent;
       }
     }
 
@@ -885,9 +885,9 @@ export default function AdminPortal({ adminUser, onLogout }: AdminPortalProps) {
                         type="number"
                         value={minAttendanceFilter}
                         onChange={(e) => setMinAttendanceFilter(e.target.value)}
-                        placeholder="Min %"
+                        placeholder="Max %"
                         className="w-full text-xs bg-white rounded-xl px-3 py-2.5 outline-none border border-neutral-200 focus:border-[#6e0614] text-neutral-800 font-semibold"
-                        title="Filter by Overall % Range (e.g. 40 for 40-49.99%)"
+                        title="Filter by Overall % at or below entered number (e.g. 50 for <= 50%)"
                       />
                     </div>
 
@@ -1034,13 +1034,13 @@ export default function AdminPortal({ adminUser, onLogout }: AdminPortalProps) {
                                           Attendance:
                                         </span>
                                         <span className={`border font-bold px-1.5 py-0.2 rounded ${stats.practicePct < 50 ? 'bg-red-50 text-red-700 border-red-200' : 'bg-green-50 text-green-700 border-green-200'}`}>
-                                          Pr: {stats.practicePct.toFixed(2)}%
+                                          Pr: {stats.practiceAttended}/{stats.practiceHeld}
                                         </span>
                                         <span className={`border font-bold px-1.5 py-0.2 rounded ${stats.performancePct < 60 ? 'bg-red-50 text-red-700 border-red-200' : 'bg-green-50 text-green-700 border-green-200'}`}>
-                                          Perf: {stats.performancePct.toFixed(2)}%
+                                          Perf: {stats.performanceAttended}/{stats.performanceHeld}
                                         </span>
                                         <span className={`border font-bold px-1.5 py-0.2 rounded ${stats.meetingPct < 75 ? 'bg-red-50 text-red-700 border-red-200' : 'bg-green-50 text-green-700 border-green-200'}`}>
-                                          Mt: {stats.meetingPct.toFixed(2)}%
+                                          Mt: {stats.meetingAttended}/{stats.meetingHeld}
                                         </span>
                                         <span className="text-neutral-800 bg-neutral-100 border border-neutral-200 px-1.5 py-0.2 rounded font-extrabold text-[9px]">
                                           Overall: {stats.overallPct.toFixed(2)}%
@@ -1216,13 +1216,13 @@ export default function AdminPortal({ adminUser, onLogout }: AdminPortalProps) {
                                       </span>
                                       <div className="flex items-center gap-1 flex-wrap text-[10px]">
                                         <span className={`border font-bold px-1.5 py-0.5 rounded ${stats.practicePct < 50 ? 'bg-red-50 text-red-700 border-red-200' : 'bg-white text-green-700 border-green-200'}`}>
-                                          Pr: {stats.practicePct.toFixed(2)}%
+                                          Pr: {stats.practiceAttended}/{stats.practiceHeld}
                                         </span>
                                         <span className={`border font-bold px-1.5 py-0.5 rounded ${stats.performancePct < 60 ? 'bg-red-50 text-red-700 border-red-200' : 'bg-white text-green-700 border-green-200'}`}>
-                                          Perf: {stats.performancePct.toFixed(2)}%
+                                          Perf: {stats.performanceAttended}/{stats.performanceHeld}
                                         </span>
                                         <span className={`border font-bold px-1.5 py-0.5 rounded ${stats.meetingPct < 75 ? 'bg-red-50 text-red-700 border-red-200' : 'bg-white text-green-700 border-green-200'}`}>
-                                          Mt: {stats.meetingPct.toFixed(2)}%
+                                          Mt: {stats.meetingAttended}/{stats.meetingHeld}
                                         </span>
                                       </div>
                                       <div className="flex items-center justify-between mt-1 pt-1 border-t border-neutral-200/60 w-full">
