@@ -754,6 +754,64 @@ class VajranadStore {
     }));
   }
 
+  public getMemberAttendanceStats(memberId: string) {
+    const records = this.getAttendanceRecords();
+    const sessions = this.getSessions();
+
+    const uniqueSessions = sessions.filter((s, index, self) => 
+      index === self.findIndex((t) => (
+        t.type === s.type && t.date === s.date
+      ))
+    );
+
+    let practiceHeld = 0;
+    let practiceAttended = 0;
+    let performanceHeld = 0;
+    let performanceAttended = 0;
+    let meetingHeld = 0;
+    let meetingAttended = 0;
+
+    for (const s of uniqueSessions) {
+      if (s.type === 'Practice') practiceHeld++;
+      else if (s.type === 'Performance') performanceHeld++;
+      else if (s.type === 'Meeting') meetingHeld++;
+    }
+
+    const memberRecords = records.filter(r => r.memberId === memberId);
+    const uniqueAttendedDates = new Set();
+    
+    for (const r of memberRecords) {
+      const key = `${r.type}-${r.date}`;
+      if (!uniqueAttendedDates.has(key)) {
+        uniqueAttendedDates.add(key);
+        if (r.type === 'Practice') practiceAttended++;
+        else if (r.type === 'Performance') performanceAttended++;
+        else if (r.type === 'Meeting') meetingAttended++;
+      }
+    }
+
+    const practicePct = practiceHeld > 0 ? (practiceAttended / practiceHeld) * 100 : 100;
+    const performancePct = performanceHeld > 0 ? (performanceAttended / performanceHeld) * 100 : 100;
+    const meetingPct = meetingHeld > 0 ? (meetingAttended / meetingHeld) * 100 : 100;
+
+    const totalHeld = practiceHeld + performanceHeld + meetingHeld;
+    const totalAttended = practiceAttended + performanceAttended + meetingAttended;
+    const overallPct = totalHeld > 0 ? (totalAttended / totalHeld) * 100 : 100;
+
+    const shortages: string[] = [];
+    if (practiceHeld > 0 && practicePct < 50) shortages.push('Practice');
+    if (performanceHeld > 0 && performancePct < 60) shortages.push('Performance');
+    if (meetingHeld > 0 && meetingPct < 75) shortages.push('Meeting');
+
+    return {
+      practicePct,
+      performancePct,
+      meetingPct,
+      overallPct,
+      shortages
+    };
+  }
+
   public markAttendance(qrCode: string, sessionId: string, scannedBy: string): { success: boolean; record?: AttendanceRecord; error?: string; alreadyMarked?: boolean; member?: Member } {
     const members = this.getMembers();
     const records = this.getAttendanceRecords();
@@ -775,6 +833,14 @@ class VajranadStore {
     if (!member.isActive) {
       console.warn(`[SCAN] ✗ Disabled member scanned: ${member.name}`);
       return { success: false, error: 'Member is disabled by Administrator.' };
+    }
+
+    if (session.type === 'Performance') {
+      const stats = this.getMemberAttendanceStats(member.id);
+      if (stats.overallPct < 50) {
+        console.warn(`[SCAN] ✗ ${member.name} blocked from Vadan session due to low attendance (${stats.overallPct.toFixed(2)}%)`);
+        return { success: false, error: 'Attendance below 50% — not eligible for Vadan session' };
+      }
     }
 
     // Duplicate check: member + same session TYPE + same DATE (cross-session deduplication)

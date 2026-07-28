@@ -107,6 +107,7 @@ export default function AdminPortal({ adminUser, onLogout }: AdminPortalProps) {
   const [yearFilter, setYearFilter] = useState('All');
   const [membersLayout, setMembersLayout] = useState<'grid' | 'list'>('grid');
   const [gridCols, setGridCols] = useState<2 | 3 | 4>(2);
+  const [minAttendanceFilter, setMinAttendanceFilter] = useState('');
   
   // Active report viewing
   const [selectedReportSession, setSelectedReportSession] = useState<AttendanceSession | null>(null);
@@ -336,7 +337,17 @@ export default function AdminPortal({ adminUser, onLogout }: AdminPortalProps) {
                           m.email.toLowerCase().includes(searchQuery.toLowerCase());
     const matchesInstrument = instrumentFilter === 'All' || m.instrument === instrumentFilter;
     const matchesYear = yearFilter === 'All' || String(m.yearJoined) === yearFilter;
-    return matchesSearch && matchesInstrument && matchesYear;
+    
+    let matchesAttendance = true;
+    if (minAttendanceFilter.trim() !== '') {
+      const targetPercent = parseInt(minAttendanceFilter, 10);
+      if (!isNaN(targetPercent)) {
+        const stats = store.getMemberAttendanceStats(m.id);
+        matchesAttendance = stats.overallPct >= targetPercent && stats.overallPct < targetPercent + 10;
+      }
+    }
+
+    return matchesSearch && matchesInstrument && matchesYear && matchesAttendance;
   }).sort((a, b) => {
     const isAAdmin = a.id === 'mem_admin' || a.email.toLowerCase() === 'admin@vajranad.com';
     const isBAdmin = b.id === 'mem_admin' || b.email.toLowerCase() === 'admin@vajranad.com';
@@ -868,6 +879,18 @@ export default function AdminPortal({ adminUser, onLogout }: AdminPortalProps) {
                       <option value="2024">2024</option>
                     </select>
 
+                    {/* Overall Attendance Filter */}
+                    <div className="relative w-[110px] shrink-0">
+                      <input
+                        type="number"
+                        value={minAttendanceFilter}
+                        onChange={(e) => setMinAttendanceFilter(e.target.value)}
+                        placeholder="Min %"
+                        className="w-full text-xs bg-white rounded-xl px-3 py-2.5 outline-none border border-neutral-200 focus:border-[#6e0614] text-neutral-800 font-semibold"
+                        title="Filter by Overall % Range (e.g. 40 for 40-49.99%)"
+                      />
+                    </div>
+
                     {/* Layout Selector */}
                     <div className="flex flex-wrap items-center gap-3 shrink-0">
                       <div className="flex items-center bg-[#FAF6EE] p-1 rounded-xl border border-neutral-200 gap-1">
@@ -1001,26 +1024,39 @@ export default function AdminPortal({ adminUser, onLogout }: AdminPortalProps) {
                                   </button>
                                 </div>
 
-                                {/* Missed Sessions Display */}
-                                {m.isDetailsFilled && (
-                                  <div className="flex items-center gap-1.5 mt-2 flex-wrap text-[10px]">
-                                    <span className="text-red-500 font-extrabold uppercase tracking-wide text-[9px] mr-1 flex items-center gap-0.5">
-                                      <ShieldAlert size={11} /> Missed:
-                                    </span>
-                                    <span className="bg-red-50 text-red-700 border border-red-100 font-bold px-1.5 py-0.2 rounded">
-                                      Pr: {getMissedCounts(m.id).practices}
-                                    </span>
-                                    <span className="bg-red-50 text-red-700 border border-red-100 font-bold px-1.5 py-0.2 rounded">
-                                      Perf: {getMissedCounts(m.id).performances}
-                                    </span>
-                                    <span className="bg-red-50 text-red-700 border border-red-100 font-bold px-1.5 py-0.2 rounded">
-                                      Mt: {getMissedCounts(m.id).meetings}
-                                    </span>
-                                    <span className="text-neutral-500 font-extrabold text-[9px]">
-                                      (Total: {getMissedCounts(m.id).total})
-                                    </span>
-                                  </div>
-                                )}
+                                {/* Attendance Stats Display */}
+                                {m.isDetailsFilled && (() => {
+                                  const stats = store.getMemberAttendanceStats(m.id);
+                                  return (
+                                    <div className="flex flex-col gap-1.5 mt-2">
+                                      <div className="flex items-center gap-1.5 flex-wrap text-[10px]">
+                                        <span className="text-neutral-500 font-extrabold uppercase tracking-wide text-[9px] mr-1 flex items-center gap-0.5">
+                                          Attendance:
+                                        </span>
+                                        <span className={`border font-bold px-1.5 py-0.2 rounded ${stats.practicePct < 50 ? 'bg-red-50 text-red-700 border-red-200' : 'bg-green-50 text-green-700 border-green-200'}`}>
+                                          Pr: {stats.practicePct.toFixed(2)}%
+                                        </span>
+                                        <span className={`border font-bold px-1.5 py-0.2 rounded ${stats.performancePct < 60 ? 'bg-red-50 text-red-700 border-red-200' : 'bg-green-50 text-green-700 border-green-200'}`}>
+                                          Perf: {stats.performancePct.toFixed(2)}%
+                                        </span>
+                                        <span className={`border font-bold px-1.5 py-0.2 rounded ${stats.meetingPct < 75 ? 'bg-red-50 text-red-700 border-red-200' : 'bg-green-50 text-green-700 border-green-200'}`}>
+                                          Mt: {stats.meetingPct.toFixed(2)}%
+                                        </span>
+                                        <span className="text-neutral-800 bg-neutral-100 border border-neutral-200 px-1.5 py-0.2 rounded font-extrabold text-[9px]">
+                                          Overall: {stats.overallPct.toFixed(2)}%
+                                        </span>
+                                      </div>
+                                      {stats.shortages.length > 0 && (
+                                        <div className="flex items-center gap-1 text-[9px]">
+                                          <span className="bg-red-600 text-white font-bold px-1.5 py-0.5 rounded uppercase flex items-center gap-1">
+                                            <ShieldAlert size={10} /> Shortage
+                                          </span>
+                                          <span className="text-red-600 font-medium">{stats.shortages.join(', ')}</span>
+                                        </div>
+                                      )}
+                                    </div>
+                                  );
+                                })()}
                               </div>
                             </div>
 
@@ -1170,26 +1206,38 @@ export default function AdminPortal({ adminUser, onLogout }: AdminPortalProps) {
                                 </div>
                                 <p className="text-xs text-neutral-400 font-medium">{m.email}</p>
 
-                                {/* Missed Sessions Display */}
-                                {m.isDetailsFilled && (
-                                  <div className="flex items-center gap-1.5 mt-2 flex-wrap text-[10px] bg-red-50/50 p-2 rounded-xl border border-red-100 text-left">
-                                    <span className="text-red-500 font-extrabold uppercase tracking-wide text-[9px] block w-full flex items-center gap-0.5 mb-1">
-                                      <ShieldAlert size={11} /> Missed Sessions Log:
-                                    </span>
-                                    <span className="bg-white text-red-700 border border-red-100 font-bold px-1.5 py-0.5 rounded">
-                                      Pr: {getMissedCounts(m.id).practices}
-                                    </span>
-                                    <span className="bg-white text-red-700 border border-red-100 font-bold px-1.5 py-0.5 rounded">
-                                      Perf: {getMissedCounts(m.id).performances}
-                                    </span>
-                                    <span className="bg-white text-red-700 border border-red-100 font-bold px-1.5 py-0.5 rounded">
-                                      Mt: {getMissedCounts(m.id).meetings}
-                                    </span>
-                                    <span className="text-neutral-500 font-extrabold text-[9px] block w-full mt-1 border-t border-red-100/40 pt-1">
-                                      Total Missed Sessions: {getMissedCounts(m.id).total}
-                                    </span>
-                                  </div>
-                                )}
+                                {/* Attendance Stats Display */}
+                                {m.isDetailsFilled && (() => {
+                                  const stats = store.getMemberAttendanceStats(m.id);
+                                  return (
+                                    <div className="flex flex-col gap-1.5 mt-2 bg-neutral-50 p-2 rounded-xl border border-neutral-100 text-left">
+                                      <span className="text-neutral-500 font-extrabold uppercase tracking-wide text-[9px] block w-full flex items-center gap-0.5 mb-1">
+                                        Attendance Log:
+                                      </span>
+                                      <div className="flex items-center gap-1 flex-wrap text-[10px]">
+                                        <span className={`border font-bold px-1.5 py-0.5 rounded ${stats.practicePct < 50 ? 'bg-red-50 text-red-700 border-red-200' : 'bg-white text-green-700 border-green-200'}`}>
+                                          Pr: {stats.practicePct.toFixed(2)}%
+                                        </span>
+                                        <span className={`border font-bold px-1.5 py-0.5 rounded ${stats.performancePct < 60 ? 'bg-red-50 text-red-700 border-red-200' : 'bg-white text-green-700 border-green-200'}`}>
+                                          Perf: {stats.performancePct.toFixed(2)}%
+                                        </span>
+                                        <span className={`border font-bold px-1.5 py-0.5 rounded ${stats.meetingPct < 75 ? 'bg-red-50 text-red-700 border-red-200' : 'bg-white text-green-700 border-green-200'}`}>
+                                          Mt: {stats.meetingPct.toFixed(2)}%
+                                        </span>
+                                      </div>
+                                      <div className="flex items-center justify-between mt-1 pt-1 border-t border-neutral-200/60 w-full">
+                                        <span className="text-neutral-800 font-extrabold text-[10px]">
+                                          Overall: {stats.overallPct.toFixed(2)}%
+                                        </span>
+                                        {stats.shortages.length > 0 && (
+                                          <span className="text-red-600 font-bold text-[9px] flex items-center gap-0.5 uppercase tracking-wide">
+                                            <ShieldAlert size={9} /> Shortage
+                                          </span>
+                                        )}
+                                      </div>
+                                    </div>
+                                  );
+                                })()}
                                 
                                 <div className="flex items-center justify-between gap-2 mt-2 flex-wrap w-full">
                                   <div className="flex items-center gap-2 flex-wrap">
