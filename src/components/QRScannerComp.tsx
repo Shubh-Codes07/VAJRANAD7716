@@ -182,7 +182,7 @@ export default function QRScannerComp({ currentUser, onScanComplete }: QRScanner
   };
 
   // Process any scanned/decoded QR text
-  const handleQRScanned = (qrCode: string) => {
+  const handleQRScanned = async (qrCode: string) => {
     if (!activeSession) return;
     
     // Check authorization
@@ -201,7 +201,7 @@ export default function QRScannerComp({ currentUser, onScanComplete }: QRScanner
     }
     lastScannedCodeRef.current = { code: qrCode, time: now };
 
-    const result = store.markAttendance(qrCode, activeSession.id, currentUser.name);
+    const result = await store.markAttendance(qrCode, activeSession.id, currentUser.name);
     setScanResult(result);
 
     if (result.success && result.record && onScanComplete) {

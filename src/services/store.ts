@@ -5,6 +5,7 @@ import {
   saveMemberToSupabase, deleteMemberFromSupabase, getAllMembersFromSupabase,
   saveSessionToSupabase, deleteSessionFromSupabase, getAllSessionsFromSupabase,
   saveRecordToSupabase, deleteRecordFromSupabase, deleteRecordsBySessionFromSupabase, getAllRecordsFromSupabase,
+  checkDuplicateRecordInSupabase,
   saveNoticeToSupabase, deleteNoticeFromSupabase, deleteNoticesByFolderFromSupabase, getAllNoticesFromSupabase,
   saveGalleryItemToSupabase, deleteGalleryItemFromSupabase, deleteGalleryByFolderFromSupabase, getAllGalleryFromSupabase,
   saveFolderToSupabase, deleteFolderFromSupabase, getAllFoldersFromSupabase,
@@ -818,9 +819,8 @@ class VajranadStore {
     };
   }
 
-  public markAttendance(qrCode: string, sessionId: string, scannedBy: string): { success: boolean; record?: AttendanceRecord; error?: string; alreadyMarked?: boolean; member?: Member } {
+  public async markAttendance(qrCode: string, sessionId: string, scannedBy: string): Promise<{ success: boolean; record?: AttendanceRecord; error?: string; alreadyMarked?: boolean; member?: Member }> {
     const members = this.getMembers();
-    const records = this.getAttendanceRecords();
     const sessions = this.getSessions();
 
     const session = sessions.find(s => s.id === sessionId);
@@ -849,23 +849,47 @@ class VajranadStore {
       }
     }
 
-    // Duplicate check: member + same session TYPE + same DATE (cross-session deduplication)
-    // This correctly handles the case where multiple sessions were accidentally created
-    // for the same type+day — the member is still considered "already present".
-    const duplicateToday = records.find(
-      r => r.memberId === member.id && r.date === session.date && r.type === session.type
-    );
-    if (duplicateToday) {
-      console.log(`[SCAN] ⚠ ${member.name} already marked present for ${session.type} on ${session.date} at ${duplicateToday.scanTime} (scanned by ${duplicateToday.scannedBy})`);
+    // ── DUPLICATE CHECK (STEP 1): Query Supabase as the cross-device source of truth ──
+    // This catches duplicates regardless of which admin/device previously scanned the member.
+    console.log(`[SCAN] Checking Supabase for existing ${session.type} record for ${member.name} on ${session.date}...`);
+    const supabaseDuplicate = await checkDuplicateRecordInSupabase(member.id, session.date, session.type);
+
+    if (supabaseDuplicate) {
+      console.log(`[SCAN] ⚠ DUPLICATE DETECTED (Supabase): ${member.name} already marked present for ${session.type} on ${session.date} at ${supabaseDuplicate.scanTime} (originally scanned by ${supabaseDuplicate.scannedBy}). REJECTING new scan.`);
+      // Sync this existing record back into local cache so future local checks also catch it
+      const localRecords = this.getAttendanceRecords();
+      const alreadyInLocal = localRecords.some(r => r.id === supabaseDuplicate.id);
+      if (!alreadyInLocal) {
+        localRecords.push(supabaseDuplicate);
+        localStorage.setItem(this.recordsKey, JSON.stringify(localRecords));
+      }
       return {
         success: true,
         alreadyMarked: true,
-        record: duplicateToday,
+        record: supabaseDuplicate,
         member,
-        error: `Already marked present for ${session.type} on ${session.date} at ${duplicateToday.scanTime}`
+        error: `Already marked present for ${session.type} on ${session.date} at ${supabaseDuplicate.scanTime}`
       };
     }
 
+    // ── DUPLICATE CHECK (STEP 2): Local cache fallback ──
+    // Handles the case where Supabase query failed/returned nothing but local cache has the record.
+    const localRecords = this.getAttendanceRecords();
+    const localDuplicate = localRecords.find(
+      r => r.memberId === member.id && r.date === session.date && r.type === session.type
+    );
+    if (localDuplicate) {
+      console.log(`[SCAN] ⚠ DUPLICATE DETECTED (local cache): ${member.name} already marked present for ${session.type} on ${session.date} at ${localDuplicate.scanTime} (scanned by ${localDuplicate.scannedBy}). REJECTING new scan.`);
+      return {
+        success: true,
+        alreadyMarked: true,
+        record: localDuplicate,
+        member,
+        error: `Already marked present for ${session.type} on ${session.date} at ${localDuplicate.scanTime}`
+      };
+    }
+
+    // ── No duplicate found — proceed to mark present ──
     const today = new Date();
     const timeStr = today.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true });
 
@@ -881,11 +905,11 @@ class VajranadStore {
       date: session.date
     };
 
-    records.push(newRecord);
-    localStorage.setItem(this.recordsKey, JSON.stringify(records));
+    localRecords.push(newRecord);
+    localStorage.setItem(this.recordsKey, JSON.stringify(localRecords));
     this.saveRecordToFirestore(newRecord);
 
-    console.log(`[SCAN] ✓ ${member.name} marked present for ${session.type} on ${session.date} at ${timeStr} (scanned by ${scannedBy})`);
+    console.log(`[SCAN] ✓ MARKED PRESENT: ${member.name} for ${session.type} on ${session.date} at ${timeStr} (scanned by ${scannedBy})`);
     return { success: true, record: newRecord, member };
   }
 

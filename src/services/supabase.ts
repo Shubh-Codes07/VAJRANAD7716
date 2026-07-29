@@ -304,6 +304,52 @@ export async function deleteRecordsBySessionFromSupabase(sessionId: string): Pro
   else console.log(`[SUPABASE DELETE] ✓ Records for session ${sessionId} deleted.`);
 }
 
+/**
+ * Checks Supabase for an existing attendance record for the given member on the
+ * given date and session type. Returns the found record, or null if none exists.
+ * This is the server-side (cross-device) source of truth for duplicate-scan prevention.
+ */
+export async function checkDuplicateRecordInSupabase(
+  memberId: string,
+  date: string,
+  sessionType: string
+): Promise<AttendanceRecord | null> {
+  console.log(`[SUPABASE DUPE-CHECK] Querying records for memberId=${memberId}, date=${date}, type=${sessionType}...`);
+
+  const { data, error } = await supabase
+    .from('records')
+    .select('*')
+    .eq('member_id', memberId)
+    .eq('date', date)
+    .eq('type', sessionType)
+    .limit(1)
+    .maybeSingle();
+
+  if (error) {
+    console.error('[SUPABASE DUPE-CHECK] ✗ Query failed:', error.message);
+    return null; // Fail open: let the local check handle it
+  }
+
+  if (data) {
+    const record: AttendanceRecord = {
+      id: data.id,
+      sessionId: data.session_id,
+      memberId: data.member_id,
+      memberName: data.member_name,
+      instrument: data.instrument,
+      scanTime: data.scan_time,
+      scannedBy: data.scanned_by,
+      type: data.type,
+      date: data.date,
+    };
+    console.log(`[SUPABASE DUPE-CHECK] ✓ Found existing record: id=${record.id}, scanTime=${record.scanTime}, scannedBy=${record.scannedBy}`);
+    return record;
+  }
+
+  console.log(`[SUPABASE DUPE-CHECK] ✓ No existing record found — member not yet marked present.`);
+  return null;
+}
+
 export async function getAllRecordsFromSupabase(): Promise<AttendanceRecord[]> {
   console.log('[SUPABASE READ] Fetching all records...');
   const { data, error } = await supabase.from('records').select('*').order('date', { ascending: false });
