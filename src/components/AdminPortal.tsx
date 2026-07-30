@@ -447,9 +447,11 @@ export default function AdminPortal({ adminUser, onLogout }: AdminPortalProps) {
     loadData();
   };
 
-  const handleDeletePerformanceRequest = (id: string) => {
+  const handleDeletePerformanceRequest = async (id: string) => {
     if (confirm("Are you sure you want to delete this performance callout request? All responses will be lost.")) {
-      store.deletePerformanceRequest(id);
+      console.log(`[ADMIN] [CALLOUT DELETE] Initiating deletion of callout id="${id}"...`);
+      await store.deletePerformanceRequest(id);
+      console.log(`[ADMIN] [CALLOUT DELETE] ✓ Callout id="${id}" fully removed from localStorage and Supabase. Reloading UI.`);
       loadData();
     }
   };

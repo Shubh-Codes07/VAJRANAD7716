@@ -204,15 +204,26 @@ class VajranadStore {
         for (const c of localCountdowns) await saveCountdownToSupabase(c);
       }
 
-      // 8. Performance Requests — read from Supabase
+      // 8. Performance Requests — Supabase is the single source of truth.
+      //    Always overwrite localStorage from Supabase (even if the result is []).
+      //    We must NEVER push local data back to Supabase here because that is the
+      //    exact mechanism that resurrects deleted callouts for new sessions.
+      console.log('[STORE] [CALLOUT LOAD] Fetching performance requests from Supabase...');
       const remotePerformanceRequests = await getAllPerformanceRequestsFromSupabase();
-      if (remotePerformanceRequests.length > 0) {
-        localStorage.setItem(this.performanceRequestsKey, JSON.stringify(remotePerformanceRequests));
-        console.log(`[STORE] Synced ${remotePerformanceRequests.length} performance request(s) from Supabase.`);
-      } else {
-        const localPerformanceRequests = this.getPerformanceRequests();
-        for (const pr of localPerformanceRequests) await savePerformanceRequestToSupabase(pr);
-      }
+      // Filter out already-expired entries before storing — Supabase data is authoritative
+      const now = Date.now();
+      const validRemoteRequests = remotePerformanceRequests.filter(pr => {
+        const expiryMs = new Date(pr.createdAt).getTime() + (pr.expiryHours ?? 48) * 3600_000;
+        const expired = now >= expiryMs;
+        if (expired) {
+          console.log(`[STORE] [CALLOUT EXPIRY] Callout "${pr.title}" (id=${pr.id}) expired — omitting from local cache and queuing Supabase delete.`);
+          // Async cleanup: remove expired record from Supabase so it doesn't keep showing up
+          deletePerformanceRequestFromSupabase(pr.id);
+        }
+        return !expired;
+      });
+      localStorage.setItem(this.performanceRequestsKey, JSON.stringify(validRemoteRequests));
+      console.log(`[STORE] [CALLOUT LOAD] ✓ Wrote ${validRemoteRequests.length} non-expired performance request(s) into localStorage (source: Supabase).`);
 
       console.log('[STORE] ✓ Full Supabase sync completed successfully!');
     } catch (e: any) {
@@ -1182,7 +1193,52 @@ class VajranadStore {
   // --- Performance Requests API ---
   public getPerformanceRequests(): PerformanceRequest[] {
     const str = localStorage.getItem(this.performanceRequestsKey);
-    return str ? JSON.parse(str) : [];
+    console.log(`[STORE] [CALLOUT READ] Reading performance requests from localStorage (key="${this.performanceRequestsKey}").`);
+    const all: PerformanceRequest[] = str ? JSON.parse(str) : [];
+    console.log(`[STORE] [CALLOUT READ] Found ${all.length} performance request(s) in localStorage.`);
+    return all;
+  }
+
+  /**
+   * Returns only callouts that are both:
+   *  - marked isActive by admin, AND
+   *  - NOT yet past their expiryHours window.
+   * Expired entries are cleaned up from localStorage and Supabase automatically.
+   */
+  public getActiveNonExpiredPerformanceRequests(): PerformanceRequest[] {
+    const all = this.getPerformanceRequests();
+    const now = Date.now();
+    const active: PerformanceRequest[] = [];
+    const expired: PerformanceRequest[] = [];
+
+    for (const pr of all) {
+      if (!pr.isActive) continue; // Admin-toggled off
+      const expiryMs = new Date(pr.createdAt).getTime() + (pr.expiryHours ?? 48) * 3600_000;
+      if (now >= expiryMs) {
+        console.log(`[STORE] [CALLOUT EXPIRY] Callout "${pr.title}" (id=${pr.id}) has expired (expired at ${new Date(expiryMs).toISOString()}). Cleaning up.`);
+        expired.push(pr);
+      } else {
+        const hoursLeft = ((expiryMs - now) / 3600_000).toFixed(1);
+        console.log(`[STORE] [CALLOUT EXPIRY] Callout "${pr.title}" (id=${pr.id}) is active. ${hoursLeft}h remaining.`);
+        active.push(pr);
+      }
+    }
+
+    // Auto-clean expired entries from localStorage and Supabase
+    if (expired.length > 0) {
+      const remaining = all.filter(pr => !expired.some(e => e.id === pr.id));
+      localStorage.setItem(this.performanceRequestsKey, JSON.stringify(remaining));
+      console.log(`[STORE] [CALLOUT EXPIRY] ✓ Removed ${expired.length} expired callout(s) from localStorage.`);
+      for (const e of expired) {
+        deletePerformanceRequestFromSupabase(e.id).then(() =>
+          console.log(`[STORE] [CALLOUT EXPIRY] ✓ Deleted expired callout id="${e.id}" from Supabase.`)
+        ).catch(err =>
+          console.error(`[STORE] [CALLOUT EXPIRY] ✗ Failed to delete expired callout id="${e.id}" from Supabase:`, err)
+        );
+      }
+    }
+
+    return active;
   }
 
   public createPerformanceRequest(title: string, date: string, time: string, location: string, description?: string, expiryHours?: number): PerformanceRequest {
@@ -1205,11 +1261,21 @@ class VajranadStore {
     return newRequest;
   }
 
-  public deletePerformanceRequest(id: string) {
+  public async deletePerformanceRequest(id: string) {
+    // Step 1: Remove from localStorage immediately so UI reflects change at once
     let requests = this.getPerformanceRequests();
+    const toDelete = requests.find(r => r.id === id);
     requests = requests.filter(r => r.id !== id);
     localStorage.setItem(this.performanceRequestsKey, JSON.stringify(requests));
-    this.deletePerformanceRequestFromFirestore(id);
+    console.log(`[STORE] [CALLOUT DELETE] ✓ Removed callout id="${id}" (title="${toDelete?.title ?? 'unknown'}") from localStorage. Remaining in cache: ${requests.length}.`);
+
+    // Step 2: Delete from Supabase (await so we confirm it's gone before returning)
+    try {
+      await deletePerformanceRequestFromSupabase(id);
+      console.log(`[STORE] [CALLOUT DELETE] ✓ Confirmed deletion of callout id="${id}" from Supabase.`);
+    } catch (err) {
+      console.error(`[STORE] [CALLOUT DELETE] ✗ Supabase delete failed for id="${id}":`, err);
+    }
   }
 
   public togglePerformanceRequestActive(id: string) {

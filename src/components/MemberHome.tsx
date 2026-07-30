@@ -163,7 +163,12 @@ export default function MemberHome({ currentUser, onLogout, onUpdateUser }: Memb
     setNotices(store.getNotices());
     setGallery(store.getGalleryItems());
     setActiveCountdown(store.getActiveCountdown());
-    setPerformanceRequests(store.getPerformanceRequests());
+    // Use getActiveNonExpiredPerformanceRequests() so:
+    //  1. Expired callouts (past expiryHours) are auto-removed from localStorage + Supabase
+    //  2. Admin-toggled-off callouts are excluded
+    //  3. No stale callout ever appears to a freshly logged-in member
+    setPerformanceRequests(store.getActiveNonExpiredPerformanceRequests());
+    console.log('[MEMBERHOME] [CALLOUT LOAD] Performance callouts loaded into UI state.');
   };
 
   useEffect(() => {
@@ -515,8 +520,10 @@ export default function MemberHome({ currentUser, onLogout, onUpdateUser }: Memb
                       />
                     )}
 
-                    {/* Active Performance RSVP Callouts for Members */}
-                    {performanceRequests.filter(pr => pr.isActive).map(pr => {
+                    {/* Active Performance RSVP Callouts for Members
+                        NOTE: performanceRequests already contains only active,
+                        non-expired entries (filtered by store.getActiveNonExpiredPerformanceRequests). */}
+                    {performanceRequests.map(pr => {
                       const currentResponse = pr.responses?.[currentUser.id];
                       const { isExpired, timeLeftStr } = getExpiryStatus(pr);
                       const expiryHours = pr.expiryHours ?? 48;
