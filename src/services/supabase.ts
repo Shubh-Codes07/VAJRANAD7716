@@ -151,7 +151,7 @@ function rowToMember(row: Record<string, any>): Member {
     isActive:                 row.is_active ?? true,
     scannerPermission:        row.scanner_permission ?? false,
     isCommitteeMember:        row.is_committee_member ?? false,
-    qrCode:                   row.qr_code ?? row.id,
+    qrCode:                   row.qr_code || row.id,
     password:                 row.password ?? undefined,
     createdAt:                row.created_at ?? new Date().toISOString(),
   };

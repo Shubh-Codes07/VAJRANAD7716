@@ -832,7 +832,7 @@ export default function MemberHome({ currentUser, onLogout, onUpdateUser }: Memb
                           value={currentUser.qrCode || currentUser.id}
                           size={88}
                           fgColor="#800000"
-                          level="H"
+                          level="M"
                           includeMargin={false}
                         />
                       </div>

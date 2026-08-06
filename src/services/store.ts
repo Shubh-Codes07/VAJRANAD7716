@@ -133,6 +133,28 @@ class VajranadStore {
       // 1. Members — read from Supabase (source of truth)
       const remoteMembers = await getAllMembersFromSupabase();
       if (remoteMembers.length > 0) {
+        // ── QR CODE AUTO-REPAIR ──────────────────────────────────────────────────
+        // Members created before the empty-qrCode fix may have qrCode === ''.
+        // The rowToMember in supabase.ts now uses || instead of ??, so any blank
+        // qr_code from the DB will already fall back to member id. But we also do
+        // a one-time pass here to write the corrected value back to Supabase so
+        // it is permanently fixed and won't keep relying on the fallback.
+        const repairPromises: Promise<void>[] = [];
+        for (const m of remoteMembers) {
+          if (!m.qrCode || m.qrCode.trim() === '') {
+            const repairedQR = m.id; // use member id as the permanent qrCode
+            const repaired = { ...m, qrCode: repairedQR };
+            console.warn(`[STORE] [QR-REPAIR] Member "${m.name}" (id=${m.id}) had blank qrCode — repairing to "${repairedQR}" and saving to Supabase.`);
+            // Update in the array in-place so localStorage also gets the fix
+            Object.assign(m, repaired);
+            repairPromises.push(saveMemberToSupabase(repaired));
+          }
+        }
+        if (repairPromises.length > 0) {
+          await Promise.allSettled(repairPromises);
+          console.log(`[STORE] [QR-REPAIR] ✓ Repaired ${repairPromises.length} member(s) with blank qrCode.`);
+        }
+        // ────────────────────────────────────────────────────────────────────────
         localStorage.setItem(this.membersKey, JSON.stringify(remoteMembers));
         console.log(`[STORE] Synced ${remoteMembers.length} member(s) from Supabase into localStorage.`);
       } else {
@@ -508,7 +530,7 @@ class VajranadStore {
       scannerPermission: false,
       isCommitteeMember: false,
       medicalIssue: false,
-      qrCode: '', // Generated after filling settings
+      qrCode: 'mem_' + Math.random().toString(36).substr(2, 9), // Unique ID assigned at signup
       createdAt: new Date().toISOString()
     };
 
@@ -565,6 +587,35 @@ class VajranadStore {
 
     // Persist to Firestore
     this.deleteMemberFromFirestore(id);
+  }
+
+  /**
+   * Debug utility — call from browser console: store.auditQRCodes()
+   * Logs a table of all members showing their qrCode value, its length,
+   * and whether it looks healthy. Useful for diagnosing scan failures.
+   */
+  public auditQRCodes(): void {
+    const members = this.getMembers();
+    console.group('[QR AUDIT] QR Code Audit for all members');
+    const rows = members.map(m => ({
+      name: m.name,
+      id: m.id,
+      qrCode: m.qrCode || '⚠ EMPTY',
+      qrLength: (m.qrCode || '').length,
+      status: !m.qrCode
+        ? '🔴 BLANK — will fail to scan'
+        : m.qrCode === m.id
+        ? '🟡 Uses member id (OK, just not a dedicated short code)'
+        : '✅ Dedicated qrCode — healthy',
+    }));
+    console.table(rows);
+    const broken = rows.filter(r => r.qrLength === 0);
+    if (broken.length === 0) {
+      console.log('[QR AUDIT] ✅ All members have a non-empty qrCode.');
+    } else {
+      console.warn(`[QR AUDIT] 🔴 ${broken.length} member(s) have BLANK qrCode — these will FAIL to scan!`, broken.map(r => r.name));
+    }
+    console.groupEnd();
   }
 
   // --- Attendance Sessions API ---
