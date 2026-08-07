@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { motion } from 'motion/react';
-import { Users, Calendar, Megaphone, Image as ImageIcon, BarChart2, ShieldAlert, Search, Edit2, CheckCircle, Trash2, Shield, Settings, Database, Upload, Download, RefreshCw, Star, UserCheck, AlertTriangle, X, Phone, MapPin, Heart, Award, Sparkles, Lock, Grid, List } from 'lucide-react';
+import { Users, Calendar, Megaphone, Image as ImageIcon, BarChart2, ShieldAlert, Search, Edit2, CheckCircle, Trash2, Shield, Settings, Database, Upload, Download, RefreshCw, Star, UserCheck, AlertTriangle, X, Phone, MapPin, Heart, Award, Sparkles, Lock, Grid, List, ClipboardEdit, UserPlus, UserMinus, ChevronDown } from 'lucide-react';
 import html2canvasSafe from '../services/html2canvasSafe';
 import jsPDF from 'jspdf';
 import { store, calculateAge } from '../services/store';
@@ -112,6 +112,13 @@ export default function AdminPortal({ adminUser, onLogout }: AdminPortalProps) {
   // Active report viewing
   const [selectedReportSession, setSelectedReportSession] = useState<AttendanceSession | null>(null);
   const [viewingPracticeSessionRecords, setViewingPracticeSessionRecords] = useState<AttendanceSession | null>(null);
+
+  // Manual Attendance Override Panel
+  const [overrideSessionId, setOverrideSessionId] = useState<string>('');
+  const [overrideMemberSearch, setOverrideMemberSearch] = useState<string>('');
+  const [overrideLoading, setOverrideLoading] = useState<string | null>(null); // memberId being processed
+  const [overrideFeedback, setOverrideFeedback] = useState<Record<string, { type: 'success' | 'error' | 'info'; msg: string }>>({});
+  const [overrideEligibilityPending, setOverrideEligibilityPending] = useState<{ memberId: string; warning: string } | null>(null);
 
   // Form states
   const [editingMember, setEditingMember] = useState<Member | null>(null);
@@ -373,6 +380,40 @@ export default function AdminPortal({ adminUser, onLogout }: AdminPortalProps) {
       total: practicesMissed + performancesMissed + meetingsMissed
     };
   };
+
+  // ─── Manual Attendance Override Handlers ─────────────────────────────────
+  const handleManualMarkPresent = async (memberId: string, bypassEligibility = false) => {
+    if (!overrideSessionId) return;
+    setOverrideLoading(memberId);
+    setOverrideFeedback(prev => { const n = { ...prev }; delete n[memberId]; return n; });
+    const result = await store.manualMarkAttendance(memberId, overrideSessionId, adminUser.name, bypassEligibility);
+    setOverrideLoading(null);
+    if (result.eligibilityWarning && !result.success) {
+      setOverrideEligibilityPending({ memberId, warning: result.eligibilityWarning });
+    } else if (result.alreadyMarked) {
+      setOverrideFeedback(prev => ({ ...prev, [memberId]: { type: 'info', msg: 'Already present' } }));
+    } else if (result.success) {
+      setOverrideFeedback(prev => ({ ...prev, [memberId]: { type: 'success', msg: '✓ Marked Present' } }));
+      loadData();
+    } else {
+      setOverrideFeedback(prev => ({ ...prev, [memberId]: { type: 'error', msg: result.error || 'Failed' } }));
+    }
+  };
+
+  const handleManualMarkAbsent = async (memberId: string) => {
+    if (!overrideSessionId) return;
+    setOverrideLoading(memberId);
+    setOverrideFeedback(prev => { const n = { ...prev }; delete n[memberId]; return n; });
+    const result = await store.manualRemoveAttendance(memberId, overrideSessionId, adminUser.name);
+    setOverrideLoading(null);
+    if (result.success) {
+      setOverrideFeedback(prev => ({ ...prev, [memberId]: { type: 'success', msg: '✓ Marked Absent' } }));
+      loadData();
+    } else {
+      setOverrideFeedback(prev => ({ ...prev, [memberId]: { type: 'error', msg: result.error || 'Failed' } }));
+    }
+  };
+  // ──────────────────────────────────────────────────────────────────────────
 
   // Toggle member properties
   const handleToggleScanner = (member: Member) => {
@@ -1394,6 +1435,242 @@ export default function AdminPortal({ adminUser, onLogout }: AdminPortalProps) {
               {/* TAB 2: ATTENDANCE & REPORT MANAGER */}
               {activeTab === 'attendance' && (
                 <div className="space-y-6">
+
+                  {/* ── ADMIN MANUAL ATTENDANCE OVERRIDE PANEL ─────────────────── */}
+                  <div className="bg-white border-2 border-[#D4AF37]/40 rounded-2xl p-6 shadow-sm">
+                    <div className="flex items-center gap-2 border-b border-neutral-100 pb-3 mb-5">
+                      <ClipboardEdit size={16} className="text-[#800000]" />
+                      <h3 className="font-bold text-sm text-neutral-800 uppercase tracking-wider flex-1">
+                        Manual Attendance Override
+                      </h3>
+                      <span className="text-[9px] font-black bg-[#800000] text-[#D4AF37] px-2 py-0.5 rounded-full uppercase tracking-wider">Admin Only</span>
+                    </div>
+                    <p className="text-xs text-neutral-500 mb-5 leading-relaxed">
+                      Mark any member Present or Absent for any past or current session — bypasses QR scan. Use to retroactively fix attendance due to QR failures, lost phones, or data errors.
+                    </p>
+
+                    {/* Step 1: Session Selector */}
+                    <div className="mb-5">
+                      <label className="text-[10px] font-bold text-neutral-500 uppercase tracking-wider block mb-1.5">
+                        Step 1 — Select Session
+                      </label>
+                      <div className="relative">
+                        <select
+                          id="override-session-select"
+                          value={overrideSessionId}
+                          onChange={(e) => {
+                            setOverrideSessionId(e.target.value);
+                            setOverrideFeedback({});
+                            setOverrideEligibilityPending(null);
+                          }}
+                          className="w-full bg-[#FAF6EE] border-2 border-neutral-200 focus:border-[#800000] rounded-xl text-xs font-semibold px-4 py-2.5 text-neutral-700 outline-none appearance-none cursor-pointer transition-colors"
+                        >
+                          <option value="">— Pick a session —</option>
+                          {[...sessions]
+                            .sort((a, b) => b.date.localeCompare(a.date))
+                            .map(s => {
+                              const count = records.filter(r => r.sessionId === s.id).length;
+                              const typeIcon = s.type === 'Practice' ? '🥁' : s.type === 'Performance' ? '🎺' : '📋';
+                              return (
+                                <option key={s.id} value={s.id}>
+                                  {typeIcon} {s.date} • {s.type} — {s.title} ({count} present)
+                                </option>
+                              );
+                            })}
+                        </select>
+                        <ChevronDown size={14} className="absolute right-3 top-3 text-neutral-400 pointer-events-none" />
+                      </div>
+                    </div>
+
+                    {/* Step 2: Member List (only shows when session is selected) */}
+                    {overrideSessionId && (() => {
+                      const selectedSession = sessions.find(s => s.id === overrideSessionId);
+                      if (!selectedSession) return null;
+
+                      const eligibleMembers = members
+                        .filter(m =>
+                          m.isDetailsFilled &&
+                          m.id !== 'mem_admin' &&
+                          m.email.toLowerCase() !== 'admin@vajranad.com' &&
+                          (overrideMemberSearch.trim() === '' ||
+                            m.name.toLowerCase().includes(overrideMemberSearch.toLowerCase()) ||
+                            m.mobileNumber?.includes(overrideMemberSearch))
+                        )
+                        .sort((a, b) => a.name.localeCompare(b.name));
+
+                      return (
+                        <div>
+                          <label className="text-[10px] font-bold text-neutral-500 uppercase tracking-wider block mb-1.5">
+                            Step 2 — Find & Override Member
+                          </label>
+
+                          {/* Session info chip */}
+                          <div className={`inline-flex items-center gap-2 text-[10px] font-bold px-3 py-1 rounded-full mb-4 border ${
+                            selectedSession.type === 'Practice' ? 'bg-[#6e0614]/10 text-[#6e0614] border-[#6e0614]/20' :
+                            selectedSession.type === 'Performance' ? 'bg-amber-50 text-amber-800 border-amber-200' :
+                            'bg-blue-50 text-blue-800 border-blue-200'
+                          }`}>
+                            <span>{selectedSession.type}</span>
+                            <span className="opacity-50">•</span>
+                            <span>{selectedSession.date} ({selectedSession.day})</span>
+                            <span className="opacity-50">•</span>
+                            <span>{selectedSession.title}</span>
+                          </div>
+
+                          {/* Member search */}
+                          <div className="relative mb-3">
+                            <Search size={13} className="absolute left-3 top-2.5 text-neutral-400" />
+                            <input
+                              id="override-member-search"
+                              type="text"
+                              value={overrideMemberSearch}
+                              onChange={e => setOverrideMemberSearch(e.target.value)}
+                              placeholder="Search member by name or phone..."
+                              className="w-full bg-[#FAF6EE] border border-neutral-200 focus:border-[#800000] rounded-xl text-xs pl-9 pr-4 py-2 outline-none transition-colors"
+                            />
+                          </div>
+
+                          {/* Eligibility bypass confirmation */}
+                          {overrideEligibilityPending && (
+                            <div className="mb-4 bg-amber-50 border border-amber-300 rounded-xl p-4">
+                              <div className="flex items-start gap-2">
+                                <AlertTriangle size={16} className="text-amber-600 mt-0.5 shrink-0" />
+                                <div>
+                                  <p className="text-xs font-bold text-amber-900">Performance Eligibility Warning</p>
+                                  <p className="text-xs text-amber-800 mt-0.5 leading-relaxed">{overrideEligibilityPending.warning}</p>
+                                  <p className="text-xs text-amber-700 mt-1">As admin, you can override this check. Mark present anyway?</p>
+                                </div>
+                              </div>
+                              <div className="flex gap-2 mt-3">
+                                <button
+                                  onClick={() => {
+                                    const { memberId } = overrideEligibilityPending!;
+                                    setOverrideEligibilityPending(null);
+                                    handleManualMarkPresent(memberId, true);
+                                  }}
+                                  className="text-xs font-bold bg-amber-600 hover:bg-amber-700 text-white px-3 py-1.5 rounded-lg cursor-pointer transition-all"
+                                >
+                                  Yes, Mark Present
+                                </button>
+                                <button
+                                  onClick={() => setOverrideEligibilityPending(null)}
+                                  className="text-xs font-bold bg-white hover:bg-neutral-50 border border-neutral-200 text-neutral-600 px-3 py-1.5 rounded-lg cursor-pointer transition-all"
+                                >
+                                  Cancel
+                                </button>
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Member rows */}
+                          <div className="space-y-2 max-h-[420px] overflow-y-auto pr-1">
+                            {eligibleMembers.length === 0 ? (
+                              <p className="text-xs text-neutral-400 italic text-center py-6">No matching members found.</p>
+                            ) : (
+                              eligibleMembers.map(m => {
+                                const isPresent = records.some(r => r.memberId === m.id && r.sessionId === overrideSessionId);
+                                const presentRecord = records.find(r => r.memberId === m.id && r.sessionId === overrideSessionId);
+                                const isLoading = overrideLoading === m.id;
+                                const feedback = overrideFeedback[m.id];
+                                const stats = store.getMemberAttendanceStats(m.id);
+
+                                return (
+                                  <div
+                                    key={m.id}
+                                    className={`flex items-center justify-between gap-3 px-4 py-3 rounded-xl border transition-all ${
+                                      isPresent
+                                        ? 'bg-green-50 border-green-200'
+                                        : 'bg-[#FAF6EE] border-neutral-200 hover:border-neutral-300'
+                                    }`}
+                                  >
+                                    {/* Left: member info */}
+                                    <div className="flex-1 min-w-0">
+                                      <div className="flex items-center gap-2 flex-wrap">
+                                        <span className="text-xs font-bold text-neutral-800 truncate">{m.name}</span>
+                                        <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full ${
+                                          isPresent ? 'bg-green-600 text-white' : 'bg-neutral-200 text-neutral-500'
+                                        }`}>
+                                          {isPresent ? '✓ PRESENT' : 'ABSENT'}
+                                        </span>
+                                        {stats.overallPct < 50 && selectedSession.type === 'Performance' && (
+                                          <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700">Low %</span>
+                                        )}
+                                      </div>
+                                      <div className="text-[10px] text-neutral-400 mt-0.5 flex items-center gap-2 flex-wrap">
+                                        <span>{m.instrument || 'Volunteer'}</span>
+                                        {presentRecord && (
+                                          <span className="text-green-600 font-semibold">
+                                            at {presentRecord.scanTime} by {presentRecord.scannedBy.replace('[ADMIN OVERRIDE] ', '⚙ ')}
+                                          </span>
+                                        )}
+                                        {feedback && (
+                                          <span className={`font-bold ${
+                                            feedback.type === 'success' ? 'text-green-700' :
+                                            feedback.type === 'error' ? 'text-red-600' : 'text-blue-600'
+                                          }`}>{feedback.msg}</span>
+                                        )}
+                                      </div>
+                                    </div>
+
+                                    {/* Right: action buttons */}
+                                    <div className="flex items-center gap-1.5 shrink-0">
+                                      {isLoading ? (
+                                        <span className="text-[10px] text-neutral-400 font-bold px-2">Saving…</span>
+                                      ) : (
+                                        <>
+                                          <button
+                                            id={`override-present-${m.id}`}
+                                            onClick={() => handleManualMarkPresent(m.id)}
+                                            disabled={isPresent}
+                                            title={isPresent ? 'Already marked present' : 'Mark Present'}
+                                            className={`flex items-center gap-1 text-[10px] font-bold px-2.5 py-1.5 rounded-lg border transition-all ${
+                                              isPresent
+                                                ? 'bg-green-100 text-green-600 border-green-200 cursor-not-allowed opacity-60'
+                                                : 'bg-green-600 text-white border-green-600 hover:bg-green-700 cursor-pointer shadow-sm'
+                                            }`}
+                                          >
+                                            <UserPlus size={11} />
+                                            Present
+                                          </button>
+                                          <button
+                                            id={`override-absent-${m.id}`}
+                                            onClick={() => handleManualMarkAbsent(m.id)}
+                                            disabled={!isPresent}
+                                            title={!isPresent ? 'Member is already absent' : 'Remove present record (mark absent)'}
+                                            className={`flex items-center gap-1 text-[10px] font-bold px-2.5 py-1.5 rounded-lg border transition-all ${
+                                              !isPresent
+                                                ? 'bg-neutral-100 text-neutral-400 border-neutral-200 cursor-not-allowed opacity-60'
+                                                : 'bg-red-50 text-red-600 border-red-200 hover:bg-red-100 cursor-pointer'
+                                            }`}
+                                          >
+                                            <UserMinus size={11} />
+                                            Absent
+                                          </button>
+                                        </>
+                                      )}
+                                    </div>
+                                  </div>
+                                );
+                              })
+                            )}
+                          </div>
+                          <p className="text-[10px] text-neutral-400 mt-3 text-center">
+                            {eligibleMembers.length} member(s) shown • All changes saved to Supabase immediately
+                          </p>
+                        </div>
+                      );
+                    })()}
+
+                    {!overrideSessionId && (
+                      <div className="text-center py-8 text-neutral-300">
+                        <ClipboardEdit size={36} className="mx-auto mb-2 opacity-40" />
+                        <p className="text-xs text-neutral-400 font-medium">Select a session above to start overriding attendance</p>
+                      </div>
+                    )}
+                  </div>
+                  {/* ──────────────────────────────────────────────────────────── */}
+
+                  {/* Attendance History & Reports */}
                   <div className="bg-white border border-neutral-200 rounded-2xl p-6 shadow-sm">
                     <h3 className="font-bold text-sm text-neutral-800 uppercase tracking-wider border-b border-neutral-100 pb-3 mb-4">
                       Attendance History & Reports

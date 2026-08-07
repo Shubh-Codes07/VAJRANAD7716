@@ -976,6 +976,145 @@ class VajranadStore {
   }
 
   /**
+   * Admin manual attendance override — mark a specific member Present for any session (past or current).
+   *
+   * Key differences from markAttendance():
+   * - Works for ANY session by id (past sessions included) — no "active session" restriction
+   * - Skips the Performance 50% eligibility block by default; pass bypassEligibility=true to force
+   * - If a record already exists, returns { alreadyMarked: true } without creating a duplicate
+   * - If no record exists, creates one and saves to both localStorage and Supabase
+   * - Full audit log: who marked, for whom, which session, old status → new status
+   */
+  public async manualMarkAttendance(
+    memberId: string,
+    sessionId: string,
+    markedByAdmin: string,
+    bypassEligibility: boolean = false
+  ): Promise<{
+    success: boolean;
+    record?: AttendanceRecord;
+    error?: string;
+    alreadyMarked?: boolean;
+    eligibilityWarning?: string;
+    member?: Member;
+  }> {
+    const members = this.getMembers();
+    const sessions = this.getSessions();
+
+    const session = sessions.find(s => s.id === sessionId);
+    if (!session) {
+      console.warn(`[ADMIN OVERRIDE] ✗ Session not found: ${sessionId}`);
+      return { success: false, error: 'Session not found.' };
+    }
+
+    const member = members.find(m => m.id === memberId);
+    if (!member) {
+      console.warn(`[ADMIN OVERRIDE] ✗ Member not found: ${memberId}`);
+      return { success: false, error: 'Member not found.' };
+    }
+
+    // Performance eligibility warning (returned to UI, not a hard block for admin)
+    let eligibilityWarning: string | undefined;
+    if (session.type === 'Performance' && !bypassEligibility) {
+      const stats = this.getMemberAttendanceStats(member.id);
+      if (stats.overallPct < 50) {
+        eligibilityWarning = `${member.name} has ${stats.overallPct.toFixed(1)}% overall attendance (below 50% eligibility threshold).`;
+        console.warn(`[ADMIN OVERRIDE] ⚠ Eligibility warning for ${member.name}: ${eligibilityWarning}`);
+        return { success: false, eligibilityWarning, member };
+      }
+    }
+
+    // Check for existing record (duplicate prevention)
+    const localRecords = this.getAttendanceRecords();
+    const existingRecord = localRecords.find(
+      r => r.memberId === memberId && r.sessionId === sessionId
+    );
+
+    if (existingRecord) {
+      console.log(`[ADMIN OVERRIDE] ℹ Already present: ${member.name} was already marked present for "${session.title}" (${session.type}) on ${session.date} at ${existingRecord.scanTime} by ${existingRecord.scannedBy}. No duplicate created.`);
+      return { success: true, alreadyMarked: true, record: existingRecord, member };
+    }
+
+    // Create the manual attendance record
+    const timeStr = new Date().toLocaleTimeString('en-US', {
+      hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true
+    });
+
+    const newRecord: AttendanceRecord = {
+      id: 'rec_' + Math.random().toString(36).substr(2, 9),
+      sessionId,
+      memberId: member.id,
+      memberName: member.name,
+      instrument: member.instrument || 'Volunteer',
+      scanTime: timeStr,
+      scannedBy: `[ADMIN OVERRIDE] ${markedByAdmin}`,
+      type: session.type,
+      date: session.date
+    };
+
+    localRecords.push(newRecord);
+    localStorage.setItem(this.recordsKey, JSON.stringify(localRecords));
+    this.saveRecordToFirestore(newRecord);
+
+    console.log(
+      `[ADMIN OVERRIDE] ✓ MANUALLY MARKED PRESENT:\n` +
+      `  Member   : ${member.name} (id=${member.id})\n` +
+      `  Session  : "${session.title}" (${session.type}) on ${session.date}\n` +
+      `  Time     : ${timeStr}\n` +
+      `  Marked by: ${markedByAdmin} (Admin)\n` +
+      `  Old status: ABSENT → New status: PRESENT\n` +
+      `  Record ID: ${newRecord.id}`
+    );
+
+    return { success: true, record: newRecord, member, eligibilityWarning };
+  }
+
+  /**
+   * Admin manual attendance override — remove an existing attendance record for a member+session.
+   * Used to correct erroneous "present" records.
+   */
+  public async manualRemoveAttendance(
+    memberId: string,
+    sessionId: string,
+    removedByAdmin: string
+  ): Promise<{ success: boolean; error?: string; member?: Member }> {
+    const members = this.getMembers();
+    const sessions = this.getSessions();
+
+    const member = members.find(m => m.id === memberId);
+    const session = sessions.find(s => s.id === sessionId);
+
+    if (!member) return { success: false, error: 'Member not found.' };
+    if (!session) return { success: false, error: 'Session not found.' };
+
+    let localRecords = this.getAttendanceRecords();
+    const recordToRemove = localRecords.find(
+      r => r.memberId === memberId && r.sessionId === sessionId
+    );
+
+    if (!recordToRemove) {
+      console.warn(`[ADMIN OVERRIDE] ✗ No present record found for ${member.name} in session "${session.title}" — nothing to remove.`);
+      return { success: false, error: 'No attendance record found for this member and session.' };
+    }
+
+    localRecords = localRecords.filter(r => r.id !== recordToRemove.id);
+    localStorage.setItem(this.recordsKey, JSON.stringify(localRecords));
+    deleteRecordFromSupabase(recordToRemove.id);
+
+    console.log(
+      `[ADMIN OVERRIDE] ✓ MANUALLY MARKED ABSENT (record removed):\n` +
+      `  Member   : ${member.name} (id=${member.id})\n` +
+      `  Session  : "${session.title}" (${session.type}) on ${session.date}\n` +
+      `  Removed by: ${removedByAdmin} (Admin)\n` +
+      `  Old status: PRESENT → New status: ABSENT\n` +
+      `  Removed record ID: ${recordToRemove.id}`
+    );
+
+    return { success: true, member };
+  }
+
+
+  /**
    * Admin utility: merges duplicate sessions for the same type+date.
    * Keeps the oldest session, re-parents all records to it, deletes duplicates.
    * Call this from the admin panel to clean up already-created duplicate sessions.
