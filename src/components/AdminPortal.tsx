@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { motion } from 'motion/react';
 import { Users, Calendar, Megaphone, Image as ImageIcon, BarChart2, ShieldAlert, Search, Edit2, CheckCircle, Trash2, Shield, Settings, Database, Upload, Download, RefreshCw, Star, UserCheck, AlertTriangle, X, Phone, MapPin, Heart, Award, Sparkles, Lock, Grid, List, ClipboardEdit, UserPlus, UserMinus, ChevronDown } from 'lucide-react';
+import { QRCodeCanvas } from 'qrcode.react';
 import html2canvasSafe from '../services/html2canvasSafe';
 import jsPDF from 'jspdf';
 import { store, calculateAge } from '../services/store';
@@ -140,6 +141,10 @@ export default function AdminPortal({ adminUser, onLogout }: AdminPortalProps) {
   const currentUploadTaskRef = useRef<any>(null);
   const [isExportingPDF, setIsExportingPDF] = useState(false);
   const [isExportingImage, setIsExportingImage] = useState(false);
+
+  // QR Card download state
+  const [isDownloadingQR, setIsDownloadingQR] = useState(false);
+  const qrCardCanvasRef = useRef<HTMLCanvasElement>(null);
 
   // Custom Confirmation Dialog State
   const [confirmDialog, setConfirmDialog] = useState<{
@@ -380,6 +385,128 @@ export default function AdminPortal({ adminUser, onLogout }: AdminPortalProps) {
       total: practicesMissed + performancesMissed + meetingsMissed
     };
   };
+
+  // ─── QR Card Download Handler ────────────────────────────────────────────
+  const handleDownloadQRCard = async (member: Member) => {
+    if (isDownloadingQR) return;
+    setIsDownloadingQR(true);
+
+    try {
+      const qrValue = member.qrCode || member.id;
+
+      // Build the QR image on the hidden canvas
+      const qrCanvas = qrCardCanvasRef.current;
+      if (!qrCanvas) { setIsDownloadingQR(false); return; }
+
+      // Card dimensions — large enough for crisp printing at 300 DPI
+      const CARD_W = 500;
+      const CARD_H = 620;
+      const QR_SIZE = 320; // actual QR pixel dimension
+      const PADDING = 30;
+
+      // Create compositing canvas
+      const card = document.createElement('canvas');
+      card.width = CARD_W;
+      card.height = CARD_H;
+      const ctx = card.getContext('2d')!;
+
+      // ── Background ──
+      ctx.fillStyle = '#FFFFFF';
+      ctx.fillRect(0, 0, CARD_W, CARD_H);
+
+      // ── Maroon header strip ──
+      ctx.fillStyle = '#800000';
+      ctx.fillRect(0, 0, CARD_W, 90);
+
+      // ── Header text: org name ──
+      ctx.fillStyle = '#D4AF37';
+      ctx.font = 'bold 17px serif';
+      ctx.textAlign = 'center';
+      ctx.fillText('VAJRANAD DHOL TASHA PATHAK', CARD_W / 2, 38);
+      ctx.font = 'bold 11px monospace';
+      ctx.fillStyle = '#fef9e0';
+      ctx.fillText('BELGAV, KARNATAKA • ATTENDANCE CARD', CARD_W / 2, 60);
+
+      // ── Member name ──
+      ctx.fillStyle = '#1a0000';
+      ctx.font = 'bold 22px serif';
+      ctx.textAlign = 'center';
+      // Truncate long names gracefully
+      const displayName = member.name.length > 28 ? member.name.slice(0, 26) + '…' : member.name;
+      ctx.fillText(displayName, CARD_W / 2, 130);
+
+      // ── Instrument / role chip ──
+      const role = member.instrument || 'Volunteer';
+      const chipW = ctx.measureText(role).width + 32;
+      const chipX = (CARD_W - chipW) / 2;
+      ctx.fillStyle = '#FAF6EE';
+      ctx.beginPath();
+      ctx.roundRect(chipX, 145, chipW, 26, 13);
+      ctx.fill();
+      ctx.strokeStyle = '#D4AF37';
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+      ctx.fillStyle = '#800000';
+      ctx.font = 'bold 11px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText(role.toUpperCase(), CARD_W / 2, 163);
+
+      // ── QR code image (from the hidden QRCodeCanvas) ──
+      const qrImgData = qrCanvas.toDataURL();
+      const qrImg = new Image();
+      await new Promise<void>((resolve, reject) => {
+        qrImg.onload = () => resolve();
+        qrImg.onerror = reject;
+        qrImg.src = qrImgData;
+      });
+      const qrX = (CARD_W - QR_SIZE) / 2;
+      const qrY = 190;
+      // White QR background with subtle shadow border
+      ctx.fillStyle = '#FFFFFF';
+      ctx.strokeStyle = '#e0e0e0';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.roundRect(qrX - 10, qrY - 10, QR_SIZE + 20, QR_SIZE + 20, 10);
+      ctx.fill();
+      ctx.stroke();
+      ctx.drawImage(qrImg, qrX, qrY, QR_SIZE, QR_SIZE);
+
+      // ── QR ID below the code (small mono text) ──
+      ctx.fillStyle = '#9ca3af';
+      ctx.font = '9px monospace';
+      ctx.textAlign = 'center';
+      const displayId = qrValue.length > 36 ? qrValue.slice(0, 34) + '…' : qrValue;
+      ctx.fillText('ID: ' + displayId, CARD_W / 2, qrY + QR_SIZE + 26);
+
+      // ── Bottom divider + scan instruction ──
+      ctx.fillStyle = '#800000';
+      ctx.fillRect(PADDING, CARD_H - 60, CARD_W - PADDING * 2, 2);
+      ctx.fillStyle = '#555555';
+      ctx.font = '11px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText('Scan this card at attendance sessions', CARD_W / 2, CARD_H - 32);
+      ctx.fillStyle = '#9ca3af';
+      ctx.font = '9px monospace';
+      ctx.fillText('vajranad.com', CARD_W / 2, CARD_H - 16);
+
+      // ── Download ──
+      const safeName = member.name.replace(/[^a-zA-Z0-9]/g, '_');
+      const link = document.createElement('a');
+      link.download = `QR_${safeName}.png`;
+      link.href = card.toDataURL('image/png');
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+
+      console.log(`[QR CARD] ✓ Downloaded QR card for ${member.name} (qrCode=${qrValue})`);
+    } catch (err) {
+      console.error('[QR CARD] Failed to generate QR card:', err);
+      alert('Failed to generate QR card. Please try again.');
+    } finally {
+      setIsDownloadingQR(false);
+    }
+  };
+  // ──────────────────────────────────────────────────────────────────────────
 
   // ─── Manual Attendance Override Handlers ─────────────────────────────────
   const handleManualMarkPresent = async (memberId: string, bypassEligibility = false) => {
@@ -3289,24 +3416,51 @@ export default function AdminPortal({ adminUser, onLogout }: AdminPortalProps) {
                 </div>
               </div>
 
-              {/* QR Scan Info */}
-              <div className="bg-neutral-50 p-4 rounded-xl border border-neutral-200/80 flex items-center justify-between gap-4">
-                <div>
-                  <span className="text-[9px] text-neutral-400 font-bold uppercase block">Registered QR ID Key</span>
-                  <span className="font-mono text-xs font-bold text-neutral-800">
-                    {viewingMemberDetails.qrCode || 'No QR code registered'}
-                  </span>
+              {/* QR Scan Info + Download QR Card */}
+              <div className="bg-neutral-50 p-4 rounded-xl border border-neutral-200/80 space-y-3">
+                <div className="flex items-center justify-between gap-4">
+                  <div className="min-w-0">
+                    <span className="text-[9px] text-neutral-400 font-bold uppercase block">Registered QR ID Key</span>
+                    <span className="font-mono text-xs font-bold text-neutral-800 break-all">
+                      {viewingMemberDetails.qrCode || 'No QR code registered'}
+                    </span>
+                  </div>
+                  {viewingMemberDetails.qrCode && (
+                    <span className="bg-green-600 text-white text-[9px] font-black px-2 py-1 rounded-md tracking-wider uppercase shrink-0">
+                      Scan Verified
+                    </span>
+                  )}
                 </div>
-                {viewingMemberDetails.qrCode && (
-                  <span className="bg-green-600 text-white text-[9px] font-black px-2 py-1 rounded-md tracking-wider uppercase">
-                    Scan Verified
-                  </span>
-                )}
+
+                {/* Hidden QRCodeCanvas — used as pixel source for card compositor */}
+                <div style={{ position: 'absolute', left: '-9999px', top: '-9999px', pointerEvents: 'none' }}>
+                  <QRCodeCanvas
+                    ref={qrCardCanvasRef}
+                    value={viewingMemberDetails.qrCode || viewingMemberDetails.id}
+                    size={320}
+                    level="M"
+                    bgColor="#FFFFFF"
+                    fgColor="#000000"
+                    includeMargin={true}
+                  />
+                </div>
+
+                <button
+                  id={`download-qr-${viewingMemberDetails.id}`}
+                  type="button"
+                  onClick={() => handleDownloadQRCard(viewingMemberDetails)}
+                  disabled={isDownloadingQR}
+                  className="w-full flex items-center justify-center gap-2 bg-[#800000] hover:bg-[#5d0000] disabled:opacity-60 disabled:cursor-not-allowed text-[#D4AF37] border border-[#D4AF37]/30 text-xs font-bold py-2.5 px-4 rounded-xl uppercase tracking-wider transition-all cursor-pointer shadow-sm"
+                >
+                  <Download size={14} />
+                  {isDownloadingQR ? 'Generating Card…' : 'Download QR Card (Print-Ready PNG)'}
+                </button>
               </div>
             </div>
 
             {/* Modal Footer */}
-            <div className="bg-neutral-50 px-6 py-4 flex flex-wrap gap-3 justify-end border-t border-neutral-100">
+            <div className="bg-neutral-50 px-6 py-4 flex flex-wrap gap-3 justify-between border-t border-neutral-100">
+              {/* Left: destructive action */}
               <button
                 type="button"
                 onClick={() => {
@@ -3331,25 +3485,29 @@ export default function AdminPortal({ adminUser, onLogout }: AdminPortalProps) {
                 Delete Account
               </button>
 
-              <button
-                type="button"
-                onClick={() => {
-                  setEditingMember(viewingMemberDetails);
-                }}
-                className="bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold py-2.5 px-4 rounded-xl uppercase tracking-wider transition-all cursor-pointer shadow-md flex items-center gap-1.5"
-                title="Edit Member Details"
-              >
-                <Edit2 size={14} />
-                Edit Profile
-              </button>
+              {/* Right: safe actions */}
+              <div className="flex flex-wrap gap-3">
 
               <button
-                type="button"
-                onClick={() => setViewingMemberDetails(null)}
-                className="bg-[#800000] hover:bg-[#5d0000] text-[#D4AF37] border border-[#D4AF37]/30 text-xs font-bold py-2.5 px-5 rounded-xl uppercase tracking-wider transition-all cursor-pointer shadow-md"
-              >
-                Close Profile
-              </button>
+                  type="button"
+                  onClick={() => {
+                    setEditingMember(viewingMemberDetails);
+                  }}
+                  className="bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold py-2.5 px-4 rounded-xl uppercase tracking-wider transition-all cursor-pointer shadow-md flex items-center gap-1.5"
+                  title="Edit Member Details"
+                >
+                  <Edit2 size={14} />
+                  Edit Profile
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setViewingMemberDetails(null)}
+                  className="bg-[#800000] hover:bg-[#5d0000] text-[#D4AF37] border border-[#D4AF37]/30 text-xs font-bold py-2.5 px-5 rounded-xl uppercase tracking-wider transition-all cursor-pointer shadow-md"
+                >
+                  Close Profile
+                </button>
+              </div>
             </div>
           </div>
         </div>
