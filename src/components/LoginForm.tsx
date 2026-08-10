@@ -1,8 +1,9 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { LogIn, UserPlus, Mail, Lock, User, ShieldAlert, Sparkles, X, Key, Fingerprint, Eye, EyeOff } from 'lucide-react';
+import { LogIn, UserPlus, Mail, Lock, User, ShieldAlert, Sparkles, X, Key, Fingerprint, Eye, EyeOff, AlertCircle } from 'lucide-react';
 import VajranadLogo from './VajranadLogo';
 import { store } from '../services/store';
+import { getRegistrationStatus } from '../services/supabase';
 import { Member } from '../types';
 
 interface LoginFormProps {
@@ -18,6 +19,10 @@ export default function LoginForm({ onAuthSuccess }: LoginFormProps) {
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+
+  // Registration open/closed gate — null = still checking, boolean = resolved
+  const [registrationsOpen, setRegistrationsOpen] = useState<boolean | null>(null);
+  const [isCheckingRegStatus, setIsCheckingRegStatus] = useState(false);
 
   // OTP-specific states
   const [isSignupOtpSent, setIsSignupOtpSent] = useState(false);
@@ -36,6 +41,35 @@ export default function LoginForm({ onAuthSuccess }: LoginFormProps) {
   const [adminPassword, setAdminPassword] = useState('');
   const [showAdminPassword, setShowAdminPassword] = useState(false);
   const [adminError, setAdminError] = useState<string | null>(null);
+
+  // Fetch registration open/closed status from Supabase on mount
+  useEffect(() => {
+    let cancelled = false;
+    const fetchStatus = async () => {
+      setIsCheckingRegStatus(true);
+      const status = await getRegistrationStatus();
+      if (!cancelled) {
+        setRegistrationsOpen(status);
+        setIsCheckingRegStatus(false);
+      }
+    };
+    fetchStatus();
+    return () => { cancelled = true; };
+  }, []);
+
+  // Re-fetch registration status whenever user switches to the Sign Up tab
+  const handleTabSwitch = async (toLogin: boolean) => {
+    setIsLogin(toLogin);
+    setError(null);
+    if (!toLogin) {
+      // Re-check status when opening Sign Up tab
+      setIsCheckingRegStatus(true);
+      const status = await getRegistrationStatus();
+      console.log('[REGISTRATION] Status re-checked on Sign Up tab open — registrations_open:', status);
+      setRegistrationsOpen(status);
+      setIsCheckingRegStatus(false);
+    }
+  };
 
   const handleAdminLoginSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -65,6 +99,16 @@ export default function LoginForm({ onAuthSuccess }: LoginFormProps) {
 
   const handleSendSignupOtp = async () => {
     setError(null);
+
+    // Re-check registration status from Supabase before allowing OTP send
+    const currentStatus = await getRegistrationStatus();
+    console.log('[REGISTRATION] Status check on OTP send attempt — registrations_open:', currentStatus);
+    setRegistrationsOpen(currentStatus);
+    if (!currentStatus) {
+      console.warn('[REGISTRATION] ✗ OTP send blocked — registrations are currently closed.');
+      setError('Registrations are currently closed. Please contact an admin if you believe this is a mistake.');
+      return;
+    }
     setIsSendingSignupOtp(true);
 
     if (!name || !email || !pathakId) {
@@ -210,8 +254,20 @@ export default function LoginForm({ onAuthSuccess }: LoginFormProps) {
           return;
         }
 
-        // Create member with verified password
-        const result = store.signup(name, email, signupPassword);
+        // Re-check registration status from Supabase before creating the account
+        // This is the final server-side logic gate — cannot be bypassed by UI tricks
+        const finalStatus = await getRegistrationStatus();
+        console.log('[REGISTRATION] Status check on final signup submit — registrations_open:', finalStatus);
+        setRegistrationsOpen(finalStatus);
+        if (!finalStatus) {
+          console.warn('[REGISTRATION] ✗ Signup submit blocked — registrations are currently closed.');
+          setError('Registrations are currently closed. Please contact an admin if you believe this is a mistake.');
+          setLoading(false);
+          return;
+        }
+
+        // Create member with verified password, passing the fetched status to the store guard
+        const result = store.signup(name, email, signupPassword, finalStatus);
         if (result.success && result.member) {
           onAuthSuccess(result.member);
         } else {
@@ -262,7 +318,7 @@ export default function LoginForm({ onAuthSuccess }: LoginFormProps) {
         <div className="flex bg-[#FFFDD0]/60 rounded-xl p-1 mb-6 border border-[#D4AF37]/20">
           <button
             type="button"
-            onClick={() => { setIsLogin(true); setError(null); }}
+            onClick={() => handleTabSwitch(true)}
             className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg text-sm font-bold transition-all duration-300 ${
               isLogin
                 ? 'bg-[#800000] text-[#D4AF37] shadow-md'
@@ -274,7 +330,7 @@ export default function LoginForm({ onAuthSuccess }: LoginFormProps) {
           </button>
           <button
             type="button"
-            onClick={() => { setIsLogin(false); setError(null); }}
+            onClick={() => handleTabSwitch(false)}
             className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg text-sm font-bold transition-all duration-300 ${
               !isLogin
                 ? 'bg-[#800000] text-[#D4AF37] shadow-md'
@@ -298,10 +354,45 @@ export default function LoginForm({ onAuthSuccess }: LoginFormProps) {
           </motion.div>
         )}
 
+        {/* Registrations Closed Banner — shown instead of signup form when closed */}
+        {!isLogin && registrationsOpen === false && (
+          <motion.div
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="mb-4"
+          >
+            <div className="bg-amber-50 border-2 border-amber-300 rounded-2xl p-5 flex flex-col items-center text-center gap-3">
+              <div className="w-12 h-12 rounded-full bg-amber-100 flex items-center justify-center text-amber-600">
+                <AlertCircle size={26} />
+              </div>
+              <div>
+                <p className="text-sm font-black text-amber-800 uppercase tracking-wide">
+                  Registrations Closed
+                </p>
+                <p className="text-xs text-amber-700 font-semibold mt-1 leading-relaxed">
+                  New member registrations are currently closed.<br />
+                  Please contact an admin if you believe this is a mistake.
+                </p>
+              </div>
+              <div className="w-full bg-amber-100 border border-amber-200 rounded-xl px-3 py-2 text-[10px] font-mono text-amber-600 uppercase tracking-widest">
+                🔒 Sign-up is temporarily disabled by the administrator
+              </div>
+            </div>
+          </motion.div>
+        )}
+
+        {/* Registrations Checking Spinner */}
+        {!isLogin && isCheckingRegStatus && (
+          <div className="flex items-center justify-center gap-2 py-2 text-neutral-400 text-xs font-semibold mb-2">
+            <div className="w-3.5 h-3.5 border-2 border-[#800000] border-t-transparent rounded-full animate-spin" />
+            Checking registration status...
+          </div>
+        )}
+
         {/* Form */}
         <form onSubmit={handleSubmit} className="space-y-4">
-          {/* Sign Up Fields */}
-          {!isLogin && (
+          {/* Sign Up Fields — hidden when registrations are closed */}
+          {!isLogin && registrationsOpen !== false && (
             <>
               {/* Full Name */}
               <div className="space-y-1.5">
@@ -540,7 +631,7 @@ export default function LoginForm({ onAuthSuccess }: LoginFormProps) {
 
           {/* Action Submit Buttons */}
           <div className="pt-2">
-            {!isLogin && !isSignupOtpSent ? (
+            {!isLogin && registrationsOpen === false ? null : !isLogin && !isSignupOtpSent ? (
               <div className="text-center bg-[#FFFDD0]/30 border border-[#D4AF37]/20 p-3 rounded-xl text-xs text-neutral-500 font-semibold">
                 Please enter Name, Pathak ID, Email and click <span className="text-[#800000] font-bold">"Send OTP"</span> beside email address to unlock signup options.
               </div>

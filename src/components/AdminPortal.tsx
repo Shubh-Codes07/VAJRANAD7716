@@ -6,7 +6,7 @@ import html2canvasSafe from '../services/html2canvasSafe';
 import jsPDF from 'jspdf';
 import { store, calculateAge } from '../services/store';
 import { db } from '../services/firebase';
-import { supabase, uploadGalleryFile, saveCloudBackupToSupabase, deleteCloudBackupFromSupabase, getAllCloudBackupsFromSupabase } from '../services/supabase';
+import { supabase, uploadGalleryFile, saveCloudBackupToSupabase, deleteCloudBackupFromSupabase, getAllCloudBackupsFromSupabase, getRegistrationStatus, setRegistrationStatus } from '../services/supabase';
 import { collection, doc, setDoc, deleteDoc, getDocs } from 'firebase/firestore';
 import { Member, AttendanceSession, AttendanceRecord, Notice, GalleryItem, Folder, Instrument, AttendanceType, EventCountdown, PerformanceRequest } from '../types';
 import ReportExporter from './ReportExporter';
@@ -71,7 +71,7 @@ interface AdminPortalProps {
 }
 
 export default function AdminPortal({ adminUser, onLogout }: AdminPortalProps) {
-  const [activeTab, setActiveTab] = useState<'members' | 'attendance' | 'folders' | 'analytics' | 'countdowns' | 'storage' | 'performances'>('members');
+  const [activeTab, setActiveTab] = useState<'members' | 'attendance' | 'folders' | 'analytics' | 'countdowns' | 'storage' | 'performances' | 'settings'>('members');
   
   // States
   const [members, setMembers] = useState<Member[]>([]);
@@ -153,6 +153,12 @@ export default function AdminPortal({ adminUser, onLogout }: AdminPortalProps) {
     message: string;
     onConfirm: () => void;
   } | null>(null);
+
+  // Settings tab state
+  const [settingsRegOpen, setSettingsRegOpen] = useState<boolean>(true);
+  const [isTogglingRegistration, setIsTogglingRegistration] = useState(false);
+  const [settingsRegStatusMsg, setSettingsRegStatusMsg] = useState<string | null>(null);
+  const [isLoadingRegStatus, setIsLoadingRegStatus] = useState(false);
 
   // Load Data
   const loadData = () => {
@@ -810,6 +816,16 @@ export default function AdminPortal({ adminUser, onLogout }: AdminPortalProps) {
   useEffect(() => {
     if (activeTab === 'storage') {
       loadCloudBackups();
+    }
+    if (activeTab === 'settings') {
+      // Load registration status when Settings tab is opened
+      setIsLoadingRegStatus(true);
+      setSettingsRegStatusMsg(null);
+      getRegistrationStatus().then(status => {
+        setSettingsRegOpen(status);
+        setIsLoadingRegStatus(false);
+        console.log('[ADMIN SETTINGS] Loaded registration status:', status ? 'OPEN' : 'CLOSED');
+      });
     }
   }, [activeTab]);
 
@@ -3168,6 +3184,156 @@ export default function AdminPortal({ adminUser, onLogout }: AdminPortalProps) {
                         </div>
                       )}
                     </div>
+                  </div>
+                </div>
+              )}
+
+              {/* TAB 8: PORTAL SETTINGS */}
+              {activeTab === 'settings' && (
+                <div className="space-y-6">
+                  {/* Header Card */}
+                  <div className="bg-white border border-[#D4AF37]/20 p-6 rounded-2xl shadow-sm relative overflow-hidden">
+                    <div className="absolute top-0 right-0 w-32 h-32 bg-[#800000]/5 rounded-full blur-2xl" />
+                    <h3 className="font-serif font-black text-[#800000] text-base flex items-center gap-1.5">
+                      <Settings size={18} className="text-[#D4AF37]" />
+                      Portal Settings
+                    </h3>
+                    <p className="text-xs text-neutral-500 leading-relaxed mt-1">
+                      Manage global application settings. Changes are stored in Supabase and apply to all users across all devices immediately.
+                    </p>
+                  </div>
+
+                  {/* Registration Control Card */}
+                  <div className="bg-white border border-neutral-200 rounded-2xl shadow-sm overflow-hidden">
+                    <div className="bg-gradient-to-r from-[#800000]/5 to-transparent px-6 py-4 border-b border-neutral-100 flex items-center gap-2">
+                      <UserPlus size={16} className="text-[#800000]" />
+                      <h4 className="font-serif font-bold text-neutral-800 text-sm">Member Registration Control</h4>
+                    </div>
+
+                    <div className="p-6">
+                      <div className="flex items-start justify-between gap-4">
+                        <div className="flex-1">
+                          <p className="font-bold text-neutral-800 text-sm">Allow New Registrations</p>
+                          <p className="text-xs text-neutral-500 mt-1 leading-relaxed">
+                            When <strong>ON</strong>, new members can create accounts via the Sign Up form.<br />
+                            When <strong>OFF</strong>, the Sign Up form is hidden and all registration attempts — including direct API calls — are blocked and rejected server-side.
+                          </p>
+                          {/* Status Badge */}
+                          <div className="mt-3 flex items-center gap-2">
+                            {isLoadingRegStatus ? (
+                              <span className="inline-flex items-center gap-1.5 text-[10px] font-bold text-neutral-400 uppercase tracking-widest">
+                                <div className="w-3 h-3 border-2 border-neutral-300 border-t-transparent rounded-full animate-spin" />
+                                Checking Supabase...
+                              </span>
+                            ) : (
+                              <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-extrabold uppercase tracking-widest border ${
+                                settingsRegOpen
+                                  ? 'bg-green-50 text-green-700 border-green-200'
+                                  : 'bg-red-50 text-red-700 border-red-200'
+                              }`}>
+                                <span className={`w-2 h-2 rounded-full ${
+                                  settingsRegOpen ? 'bg-green-500 animate-pulse' : 'bg-red-500'
+                                }`} />
+                                {settingsRegOpen ? 'OPEN — Accepting Registrations' : 'CLOSED — Registrations Blocked'}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Toggle Switch */}
+                        <div className="shrink-0 flex flex-col items-center gap-2 mt-1">
+                          <button
+                            id="registration-toggle"
+                            type="button"
+                            disabled={isTogglingRegistration || isLoadingRegStatus}
+                            onClick={async () => {
+                              const newValue = !settingsRegOpen;
+                              setIsTogglingRegistration(true);
+                              setSettingsRegStatusMsg(null);
+                              console.log('[ADMIN SETTINGS] Toggling registration status to:', newValue ? 'OPEN' : 'CLOSED');
+                              try {
+                                await setRegistrationStatus(newValue);
+                                setSettingsRegOpen(newValue);
+                                setSettingsRegStatusMsg(
+                                  newValue
+                                    ? '✓ Registrations are now OPEN. New members can sign up.'
+                                    : '✓ Registrations are now CLOSED. New sign-ups are blocked.'
+                                );
+                                console.log('[ADMIN SETTINGS] ✓ Registration status successfully updated to:', newValue ? 'OPEN' : 'CLOSED');
+                              } catch (err: any) {
+                                setSettingsRegStatusMsg(`✗ Failed to update: ${err.message}`);
+                                console.error('[ADMIN SETTINGS] ✗ Failed to update registration status:', err);
+                              } finally {
+                                setIsTogglingRegistration(false);
+                              }
+                            }}
+                            className={`relative inline-flex h-8 w-14 items-center rounded-full transition-all duration-300 focus:outline-none focus:ring-2 focus:ring-[#800000] focus:ring-offset-2 cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed ${
+                              settingsRegOpen ? 'bg-[#800000]' : 'bg-neutral-300'
+                            }`}
+                            title={settingsRegOpen ? 'Click to close registrations' : 'Click to open registrations'}
+                          >
+                            <span className={`inline-block h-6 w-6 transform rounded-full bg-white shadow-md transition-transform duration-300 ${
+                              settingsRegOpen ? 'translate-x-7' : 'translate-x-1'
+                            }`} />
+                            {/* Gold shimmer on active */}
+                            {settingsRegOpen && (
+                              <span className="absolute inset-0 rounded-full border-2 border-[#D4AF37]/60 pointer-events-none" />
+                            )}
+                          </button>
+                          <span className={`text-[9px] font-extrabold uppercase tracking-widest ${
+                            settingsRegOpen ? 'text-[#800000]' : 'text-neutral-400'
+                          }`}>
+                            {isTogglingRegistration ? 'Saving...' : settingsRegOpen ? 'ON' : 'OFF'}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Feedback Message */}
+                      {settingsRegStatusMsg && (
+                        <motion.div
+                          initial={{ opacity: 0, y: 4 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          className={`mt-4 p-3 rounded-xl text-xs font-bold border ${
+                            settingsRegStatusMsg.startsWith('✓')
+                              ? 'bg-green-50 border-green-200 text-green-700'
+                              : 'bg-red-50 border-red-200 text-red-700'
+                          }`}
+                        >
+                          {settingsRegStatusMsg}
+                        </motion.div>
+                      )}
+
+                      {/* Storage info note */}
+                      <div className="mt-5 pt-4 border-t border-neutral-100">
+                        <p className="text-[10px] text-neutral-400 font-semibold flex items-center gap-1.5">
+                          <Database size={11} className="text-[#D4AF37]" />
+                          Stored in: <code className="bg-neutral-100 px-1.5 py-0.5 rounded text-[9px] font-mono text-neutral-600">Supabase → app_settings → key: &apos;registrations_open&apos;</code>
+                        </p>
+                        <p className="text-[10px] text-neutral-400 font-semibold mt-1 flex items-center gap-1.5">
+                          <Shield size={11} className="text-[#D4AF37]" />
+                          Enforced at: UI layer (form hidden) + OTP send gate + final submit gate + store.signup() backend guard
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* SQL Setup Note */}
+                  <div className="bg-[#FFFDD0]/60 border border-[#D4AF37]/30 rounded-2xl p-5">
+                    <h5 className="font-bold text-[#800000] text-xs uppercase tracking-wide flex items-center gap-1.5 mb-2">
+                      <Database size={13} className="text-[#D4AF37]" />
+                      Supabase Setup Note
+                    </h5>
+                    <p className="text-[10px] text-neutral-600 font-semibold leading-relaxed mb-2">
+                      The <code className="bg-white/80 px-1 py-0.5 rounded border border-neutral-200 font-mono">app_settings</code> table must exist in your Supabase project. Run this once in the Supabase SQL Editor:
+                    </p>
+                    <pre className="bg-neutral-900 text-green-400 rounded-xl p-4 text-[10px] font-mono leading-relaxed overflow-x-auto">{`CREATE TABLE IF NOT EXISTS app_settings (
+  key   TEXT PRIMARY KEY,
+  value TEXT NOT NULL
+);
+
+INSERT INTO app_settings (key, value)
+VALUES ('registrations_open', 'true')
+ON CONFLICT (key) DO NOTHING;`}</pre>
                   </div>
                 </div>
               )}

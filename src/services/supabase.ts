@@ -565,3 +565,61 @@ export async function getAllCloudBackupsFromSupabase(): Promise<any[]> {
     id: r.id, name: r.name, url: r.url, size: r.size, createdAt: r.created_at,
   }));
 }
+
+// ─────────────────────────────────────────────────────────────
+// DATABASE: App Settings (Global Config)
+// ─────────────────────────────────────────────────────────────
+
+/**
+ * Reads the 'registrations_open' config flag from the Supabase `app_settings` table.
+ * Returns true (open) by default if the row doesn't exist or if the query fails.
+ *
+ * SQL to create the table (run once in Supabase SQL Editor):
+ *   CREATE TABLE IF NOT EXISTS app_settings (
+ *     key   TEXT PRIMARY KEY,
+ *     value TEXT NOT NULL
+ *   );
+ *   INSERT INTO app_settings (key, value)
+ *   VALUES ('registrations_open', 'true')
+ *   ON CONFLICT (key) DO NOTHING;
+ */
+export async function getRegistrationStatus(): Promise<boolean> {
+  console.log('[SUPABASE SETTINGS] Fetching registration status from app_settings...');
+  const { data, error } = await supabase
+    .from('app_settings')
+    .select('value')
+    .eq('key', 'registrations_open')
+    .maybeSingle();
+
+  if (error) {
+    console.error('[SUPABASE SETTINGS] ✗ Failed to fetch registration status:', error.message, '— defaulting to OPEN (true).');
+    return true; // fail-open: don't block signups due to a DB read error
+  }
+
+  if (!data) {
+    console.warn('[SUPABASE SETTINGS] ⚠ No row found for key="registrations_open" — defaulting to OPEN (true).');
+    return true;
+  }
+
+  const isOpen = data.value === 'true';
+  console.log(`[SUPABASE SETTINGS] ✓ Registration status fetched: ${isOpen ? 'OPEN' : 'CLOSED'}`);
+  return isOpen;
+}
+
+/**
+ * Sets the 'registrations_open' config flag in the Supabase `app_settings` table.
+ * Upserts the row so it works even if the row doesn't exist yet.
+ */
+export async function setRegistrationStatus(open: boolean): Promise<void> {
+  console.log(`[SUPABASE SETTINGS] Setting registration status to: ${open ? 'OPEN' : 'CLOSED'}`);
+  const { error } = await supabase
+    .from('app_settings')
+    .upsert({ key: 'registrations_open', value: open ? 'true' : 'false' }, { onConflict: 'key' });
+
+  if (error) {
+    console.error('[SUPABASE SETTINGS] ✗ Failed to update registration status:', error.message);
+    throw new Error(`Failed to update registration status: ${error.message}`);
+  }
+
+  console.log(`[SUPABASE SETTINGS] ✓ Registration status updated to: ${open ? 'OPEN' : 'CLOSED'}`);
+}

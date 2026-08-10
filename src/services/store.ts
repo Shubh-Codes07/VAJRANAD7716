@@ -512,7 +512,14 @@ class VajranadStore {
     return { success: true, member };
   }
 
-  public signup(name: string, email: string, password?: string): { success: boolean; member?: Member; error?: string } {
+  public signup(name: string, email: string, password?: string, registrationsOpen: boolean = true): { success: boolean; member?: Member; error?: string } {
+    // Backend-level guard: reject signup if registrations are closed, regardless of UI state.
+    console.log('[REGISTRATION] Status check at store.signup() — registrations_open:', registrationsOpen);
+    if (!registrationsOpen) {
+      console.warn('[REGISTRATION] ✗ Sign-up blocked at store level — registrations are currently closed.');
+      return { success: false, error: 'Registrations are currently closed. Please contact an admin if you believe this is a mistake.' };
+    }
+
     const members = this.getMembers();
     const normEmail = email.trim().toLowerCase();
 
