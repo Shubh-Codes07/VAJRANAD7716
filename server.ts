@@ -8,6 +8,14 @@ dotenv.config();
 const app = express();
 const PORT = parseInt(process.env.PORT || '3000', 10);
 
+// ─── 0. FORCE UTF-8 ON ALL RESPONSES ────────────────────────────────────────
+// Ensures the browser never guesses a wrong encoding (e.g. Latin-1 / Windows-1252).
+// Must run before any route handlers.
+app.use((_req, res, next) => {
+  res.setHeader('Content-Type', 'text/html; charset=utf-8');
+  next();
+});
+
 // ─── 1. GLOBAL MIDDLEWARE ────────────────────────────────────────────────────
 app.use(express.json());
 
@@ -150,12 +158,24 @@ async function start() {
   } else {
     // Production: serve pre-built static files from dist/
     const distPath = path.join(process.cwd(), 'dist');
-    // 3. Static assets (JS, CSS, images)
-    app.use(express.static(distPath));
+    // 3. Static assets (JS, CSS, images) — explicitly set charset on HTML files
+    app.use(express.static(distPath, {
+      setHeaders(res, filePath) {
+        if (filePath.endsWith('.html')) {
+          res.setHeader('Content-Type', 'text/html; charset=utf-8');
+        } else if (filePath.endsWith('.js') || filePath.endsWith('.mjs')) {
+          res.setHeader('Content-Type', 'application/javascript; charset=utf-8');
+        } else if (filePath.endsWith('.css')) {
+          res.setHeader('Content-Type', 'text/css; charset=utf-8');
+        }
+      }
+    }));
     // 4. Catch-all: return index.html for any non-API route (SPA client-side routing)
     app.get('*', (req, res) => {
+      res.setHeader('Content-Type', 'text/html; charset=utf-8');
       res.sendFile(path.join(distPath, 'index.html'));
     });
+
   }
 
   app.listen(PORT, "0.0.0.0", () => {
