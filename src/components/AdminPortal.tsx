@@ -546,6 +546,56 @@ export default function AdminPortal({ adminUser, onLogout }: AdminPortalProps) {
       setOverrideFeedback(prev => ({ ...prev, [memberId]: { type: 'error', msg: result.error || 'Failed' } }));
     }
   };
+
+  const handleMarkAllPresent = async () => {
+    if (!overrideSessionId) return;
+    
+    const eligibleMembers = members
+      .filter(m =>
+        m.isDetailsFilled &&
+        m.id !== 'mem_admin' &&
+        m.email.toLowerCase() !== 'admin@vajranad.com' &&
+        (overrideMemberSearch.trim() === '' ||
+          m.name.toLowerCase().includes(overrideMemberSearch.toLowerCase()) ||
+          m.mobileNumber?.includes(overrideMemberSearch))
+      );
+      
+    const membersToMark = eligibleMembers.filter(m => 
+      !records.some(r => r.memberId === m.id && r.sessionId === overrideSessionId)
+    );
+    
+    if (membersToMark.length === 0) {
+      alert("All members in the current list are already marked present.");
+      return;
+    }
+    
+    if (!window.confirm(`Are you sure you want to mark ${membersToMark.length} members as Present for this session?`)) {
+      return;
+    }
+    
+    console.log(`[ADMIN OVERRIDE] Starting bulk mark present for ${membersToMark.length} members in session ${overrideSessionId}`);
+    
+    let successCount = 0;
+    for (const m of membersToMark) {
+      setOverrideLoading(m.id);
+      // Pass bypassEligibility=true so it doesn't fail on low-attendance members during bulk action
+      const result = await store.manualMarkAttendance(m.id, overrideSessionId, adminUser.name, true);
+      
+      if (result.success) {
+        successCount++;
+        console.log(`[ADMIN OVERRIDE] ✓ Successfully marked ${m.name} present.`);
+      } else if (result.alreadyMarked) {
+        console.log(`[ADMIN OVERRIDE] Member ${m.name} was already marked present.`);
+      } else {
+        console.error(`[ADMIN OVERRIDE] Failed to mark ${m.name} present:`, result.error);
+      }
+    }
+    
+    setOverrideLoading(null);
+    loadData();
+    alert(`Successfully marked ${successCount} out of ${membersToMark.length} members as Present.`);
+  };
+
   // ──────────────────────────────────────────────────────────────────────────
 
   // Toggle member properties
@@ -1714,6 +1764,21 @@ export default function AdminPortal({ adminUser, onLogout }: AdminPortalProps) {
                               </div>
                             </div>
                           )}
+
+                          {/* Bulk Actions */}
+                          <div className="flex justify-between items-center mb-3 px-1">
+                            <span className="text-[10px] font-bold text-neutral-500 uppercase tracking-wider">
+                              {eligibleMembers.length} Members Found
+                            </span>
+                            <button
+                              onClick={handleMarkAllPresent}
+                              disabled={eligibleMembers.length === 0}
+                              className="text-[10px] font-bold bg-green-600 hover:bg-green-700 text-white px-3 py-1.5 rounded-lg cursor-pointer transition-all shadow-sm disabled:opacity-50 flex items-center gap-1.5"
+                            >
+                              <UserPlus size={12} />
+                              Mark All Listed Present
+                            </button>
+                          </div>
 
                           {/* Member rows */}
                           <div className="space-y-2 max-h-[420px] overflow-y-auto pr-1">
