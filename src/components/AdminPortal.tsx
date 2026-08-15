@@ -532,7 +532,7 @@ export default function AdminPortal({ adminUser, onLogout }: AdminPortalProps) {
       const result = await store.adminCreateExplicitSession(
         newSessionData.type,
         newSessionData.date,
-        currentUser.name,
+        adminUser.name,
         newSessionData.weight
       );
       
