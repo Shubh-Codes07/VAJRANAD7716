@@ -114,11 +114,8 @@ export default function AdminPortal({ adminUser, onLogout }: AdminPortalProps) {
   const [selectedReportSession, setSelectedReportSession] = useState<AttendanceSession | null>(null);
   const [viewingPracticeSessionRecords, setViewingPracticeSessionRecords] = useState<AttendanceSession | null>(null);
 
-  // Manual Performance Override Panel
-  const [overrideDate, setOverrideDate] = useState<string>(new Date().toISOString().split('T')[0]);
-  const overrideSession = sessions.find(s => s.type === 'Performance' && s.date === overrideDate);
-  const overrideSessionId = overrideSession?.id;
-  
+  // Manual Attendance Override Panel
+  const [overrideSessionId, setOverrideSessionId] = useState<string>('');
   const [overrideMemberSearch, setOverrideMemberSearch] = useState<string>('');
   const [overrideLoading, setOverrideLoading] = useState<string | null>(null); // memberId being processed
   const [overrideFeedback, setOverrideFeedback] = useState<Record<string, { type: 'success' | 'error' | 'info'; msg: string }>>({});
@@ -517,20 +514,12 @@ export default function AdminPortal({ adminUser, onLogout }: AdminPortalProps) {
   };
   // ──────────────────────────────────────────────────────────────────────────
 
-  // ─── Manual Attendance Override Handlers ───────────────
-  const ensurePerformanceSession = async () => {
-    if (overrideSessionId) return overrideSessionId;
-    const s = store.createPastSession('Performance', overrideDate, `Performance Session - ${overrideDate}`, adminUser.name, 1);
-    loadData();
-    return s.id;
-  };
-
+  // ─── Manual Attendance Override Handlers ─────────────────────────────────
   const handleManualMarkPresent = async (memberId: string, bypassEligibility = false) => {
-    if (!overrideDate) return;
-    const sessionId = await ensurePerformanceSession();
+    if (!overrideSessionId) return;
     setOverrideLoading(memberId);
     setOverrideFeedback(prev => { const n = { ...prev }; delete n[memberId]; return n; });
-    const result = await store.manualMarkAttendance(memberId, sessionId, adminUser.name, bypassEligibility);
+    const result = await store.manualMarkAttendance(memberId, overrideSessionId, adminUser.name, bypassEligibility);
     setOverrideLoading(null);
     if (result.eligibilityWarning && !result.success) {
       setOverrideEligibilityPending({ memberId, warning: result.eligibilityWarning });
@@ -545,7 +534,7 @@ export default function AdminPortal({ adminUser, onLogout }: AdminPortalProps) {
   };
 
   const handleManualMarkAbsent = async (memberId: string) => {
-    if (!overrideSessionId) return; // if no session, cannot be absent
+    if (!overrideSessionId) return;
     setOverrideLoading(memberId);
     setOverrideFeedback(prev => { const n = { ...prev }; delete n[memberId]; return n; });
     const result = await store.manualRemoveAttendance(memberId, overrideSessionId, adminUser.name);
@@ -559,7 +548,7 @@ export default function AdminPortal({ adminUser, onLogout }: AdminPortalProps) {
   };
 
   const handleMarkAllPresent = async () => {
-    if (!overrideDate) return;
+    if (!overrideSessionId) return;
     
     const eligibleMembers = members
       .filter(m =>
@@ -572,7 +561,7 @@ export default function AdminPortal({ adminUser, onLogout }: AdminPortalProps) {
       );
       
     const membersToMark = eligibleMembers.filter(m => 
-      !records.some(r => r.memberId === m.id && r.date === overrideDate && r.type === 'Performance')
+      !records.some(r => r.memberId === m.id && r.sessionId === overrideSessionId)
     );
     
     if (membersToMark.length === 0) {
@@ -580,19 +569,17 @@ export default function AdminPortal({ adminUser, onLogout }: AdminPortalProps) {
       return;
     }
     
-    if (!window.confirm(`Are you sure you want to mark ${membersToMark.length} members as Present for the Performance on ${overrideDate}?`)) {
+    if (!window.confirm(`Are you sure you want to mark ${membersToMark.length} members as Present for this session?`)) {
       return;
     }
     
-    console.log(`[ADMIN OVERRIDE] Starting bulk mark present for ${membersToMark.length} members for date ${overrideDate}`);
+    console.log(`[ADMIN OVERRIDE] Starting bulk mark present for ${membersToMark.length} members in session ${overrideSessionId}`);
     
-    const sessionId = await ensurePerformanceSession();
     let successCount = 0;
-    
     for (const m of membersToMark) {
       setOverrideLoading(m.id);
       // Pass bypassEligibility=true so it doesn't fail on low-attendance members during bulk action
-      const result = await store.manualMarkAttendance(m.id, sessionId, adminUser.name, true);
+      const result = await store.manualMarkAttendance(m.id, overrideSessionId, adminUser.name, true);
       
       if (result.success) {
         successCount++;
@@ -1657,36 +1644,52 @@ export default function AdminPortal({ adminUser, onLogout }: AdminPortalProps) {
                     <div className="flex items-center gap-2 border-b border-neutral-100 pb-3 mb-5">
                       <ClipboardEdit size={16} className="text-[#800000]" />
                       <h3 className="font-bold text-sm text-neutral-800 uppercase tracking-wider flex-1">
-                        Manual Performance Override
+                        Manual Attendance Override
                       </h3>
                       <span className="text-[9px] font-black bg-[#800000] text-[#D4AF37] px-2 py-0.5 rounded-full uppercase tracking-wider">Admin Only</span>
                     </div>
                     <p className="text-xs text-neutral-500 mb-5 leading-relaxed">
-                      Select a date to retroactively mark Performance attendance. If no session exists for that date, one will be created automatically.
+                      Mark any member Present or Absent for any past or current session ” bypasses QR scan. Use to retroactively fix attendance due to QR failures, lost phones, or data errors.
                     </p>
 
-                    {/* Step 1: Date Selector */}
+                    {/* Step 1: Session Selector */}
                     <div className="mb-5">
                       <label className="text-[10px] font-bold text-neutral-500 uppercase tracking-wider block mb-1.5">
-                        Step 1 – Select Date
+                        Step 1 ” Select Session
                       </label>
-                      <input
-                        type="date"
-                        value={overrideDate}
-                        onChange={(e) => {
-                          setOverrideDate(e.target.value);
-                          setOverrideFeedback({});
-                          setOverrideEligibilityPending(null);
-                        }}
-                        className="w-full bg-[#FAF6EE] border-2 border-neutral-200 focus:border-[#800000] rounded-xl text-xs font-semibold px-4 py-2.5 text-neutral-700 outline-none transition-colors"
-                      />
+                      <div className="relative">
+                        <select
+                          id="override-session-select"
+                          value={overrideSessionId}
+                          onChange={(e) => {
+                            setOverrideSessionId(e.target.value);
+                            setOverrideFeedback({});
+                            setOverrideEligibilityPending(null);
+                          }}
+                          className="w-full bg-[#FAF6EE] border-2 border-neutral-200 focus:border-[#800000] rounded-xl text-xs font-semibold px-4 py-2.5 text-neutral-700 outline-none appearance-none cursor-pointer transition-colors"
+                        >
+                          <option value="">” Pick a session ”</option>
+                          {[...sessions]
+                            .sort((a, b) => b.date.localeCompare(a.date))
+                            .map(s => {
+                              const count = records.filter(r => r.sessionId === s.id).length;
+                              const typeIcon = s.type === 'Practice' ? '🥁' : s.type === 'Performance' ? '🎺' : '📋';
+                              return (
+                                <option key={s.id} value={s.id}>
+                                  {typeIcon} {s.date} • {s.type} ” {s.title} ({count} present)
+                                </option>
+                              );
+                            })}
+                        </select>
+                        <ChevronDown size={14} className="absolute right-3 top-3 text-neutral-400 pointer-events-none" />
+                      </div>
                     </div>
 
-                    {/* Step 2: Member List */}
-                    {overrideDate && (() => {
-                      const selectedSession = overrideSession;
-                      const displayTitle = selectedSession ? selectedSession.title : `Performance Session - ${overrideDate}`;
-                      
+                    {/* Step 2: Member List (only shows when session is selected) */}
+                    {overrideSessionId && (() => {
+                      const selectedSession = sessions.find(s => s.id === overrideSessionId);
+                      if (!selectedSession) return null;
+
                       const eligibleMembers = members
                         .filter(m =>
                           m.isDetailsFilled &&
@@ -1701,18 +1704,20 @@ export default function AdminPortal({ adminUser, onLogout }: AdminPortalProps) {
                       return (
                         <div>
                           <label className="text-[10px] font-bold text-neutral-500 uppercase tracking-wider block mb-1.5">
-                            Step 2 – Find & Override Member
+                            Step 2 ” Find & Override Member
                           </label>
 
                           {/* Session info chip */}
                           <div className={`inline-flex items-center gap-2 text-[10px] font-bold px-3 py-1 rounded-full mb-4 border ${
-                            selectedSession ? 'bg-amber-50 text-amber-800 border-amber-200' : 'bg-neutral-50 text-neutral-500 border-neutral-200'
+                            selectedSession.type === 'Practice' ? 'bg-[#6e0614]/10 text-[#6e0614] border-[#6e0614]/20' :
+                            selectedSession.type === 'Performance' ? 'bg-amber-50 text-amber-800 border-amber-200' :
+                            'bg-blue-50 text-blue-800 border-blue-200'
                           }`}>
-                            <span>Performance</span>
+                            <span>{selectedSession.type}</span>
                             <span className="opacity-50">•</span>
-                            <span>{overrideDate}</span>
+                            <span>{selectedSession.date} ({selectedSession.day})</span>
                             <span className="opacity-50">•</span>
-                            <span>{displayTitle} {selectedSession ? '' : '(Will be created)'}</span>
+                            <span>{selectedSession.title}</span>
                           </div>
 
                           {/* Member search */}
@@ -1781,9 +1786,8 @@ export default function AdminPortal({ adminUser, onLogout }: AdminPortalProps) {
                               <p className="text-xs text-neutral-400 italic text-center py-6">No matching members found.</p>
                             ) : (
                               eligibleMembers.map(m => {
-                                // Find record directly by date and type since session might not exist yet
-                                const isPresent = records.some(r => r.memberId === m.id && r.date === overrideDate && r.type === 'Performance');
-                                const presentRecord = records.find(r => r.memberId === m.id && r.date === overrideDate && r.type === 'Performance');
+                                const isPresent = records.some(r => r.memberId === m.id && r.sessionId === overrideSessionId);
+                                const presentRecord = records.find(r => r.memberId === m.id && r.sessionId === overrideSessionId);
                                 const isLoading = overrideLoading === m.id;
                                 const feedback = overrideFeedback[m.id];
                                 const stats = store.getMemberAttendanceStats(m.id);
@@ -1806,7 +1810,7 @@ export default function AdminPortal({ adminUser, onLogout }: AdminPortalProps) {
                                         }`}>
                                           {isPresent ? '✓ PRESENT' : 'ABSENT'}
                                         </span>
-                                        {stats.overallPct < 50 && (
+                                        {stats.overallPct < 50 && selectedSession.type === 'Performance' && (
                                           <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700">Low %</span>
                                         )}
                                       </div>
@@ -1814,7 +1818,7 @@ export default function AdminPortal({ adminUser, onLogout }: AdminPortalProps) {
                                         <span>{m.instrument || 'Volunteer'}</span>
                                         {presentRecord && (
                                           <span className="text-green-600 font-semibold">
-                                            at {presentRecord.scanTime} by {presentRecord.scannedBy.replace('[ADMIN OVERRIDE] ', '')}
+                                            at {presentRecord.scanTime} by {presentRecord.scannedBy.replace('[ADMIN OVERRIDE] ', 'âš™ ')}
                                           </span>
                                         )}
                                         {feedback && (
@@ -1829,7 +1833,7 @@ export default function AdminPortal({ adminUser, onLogout }: AdminPortalProps) {
                                     {/* Right: action buttons */}
                                     <div className="flex items-center gap-1.5 shrink-0">
                                       {isLoading ? (
-                                        <span className="text-[10px] text-neutral-400 font-bold px-2">Saving...</span>
+                                        <span className="text-[10px] text-neutral-400 font-bold px-2">Saving…</span>
                                       ) : (
                                         <>
                                           <button
@@ -1875,10 +1879,10 @@ export default function AdminPortal({ adminUser, onLogout }: AdminPortalProps) {
                       );
                     })()}
 
-                    {!overrideDate && (
+                    {!overrideSessionId && (
                       <div className="text-center py-8 text-neutral-300">
                         <ClipboardEdit size={36} className="mx-auto mb-2 opacity-40" />
-                        <p className="text-xs text-neutral-400 font-medium">Select a date above to start overriding attendance</p>
+                        <p className="text-xs text-neutral-400 font-medium">Select a session above to start overriding attendance</p>
                       </div>
                     )}
                   </div>

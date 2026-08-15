@@ -767,28 +767,6 @@ class VajranadStore {
     return newSession;
   }
 
-  public createPastSession(type: AttendanceType, date: string, title: string, creatorName: string, weight: number = 1): AttendanceSession {
-    const sessions = this.getSessions();
-    const dayName = new Date(date).toLocaleDateString('en-US', { weekday: 'long' });
-    
-    const newSession: AttendanceSession = {
-      id: 'sess_' + Math.random().toString(36).substr(2, 9),
-      type,
-      title,
-      date,
-      day: dayName,
-      isActive: false, // specifically false to not disrupt live QR scanning
-      createdBy: creatorName,
-      weight
-    };
-
-    sessions.push(newSession);
-    localStorage.setItem(this.sessionsKey, JSON.stringify(sessions));
-    this.saveSessionToFirestore(newSession);
-    console.log(`[SESSION] 🕰️ Created past ${type} session: ${newSession.id} for date ${date}`);
-    return newSession;
-  }
-
   public closeActiveSession() {
     const sessions = this.getSessions();
     sessions.forEach(s => {
