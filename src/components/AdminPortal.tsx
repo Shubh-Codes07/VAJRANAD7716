@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { motion } from 'motion/react';
 import { Users, Calendar, Megaphone, Image as ImageIcon, BarChart2, ShieldAlert, Search, Edit2, CheckCircle, Trash2, Shield, Settings, Database, Upload, Download, RefreshCw, Star, UserCheck, AlertTriangle, X, Phone, MapPin, Heart, Award, Sparkles, Lock, Grid, List, ClipboardEdit, UserPlus, UserMinus, ChevronDown } from 'lucide-react';
 import { QRCodeCanvas } from 'qrcode.react';
@@ -392,7 +392,7 @@ export default function AdminPortal({ adminUser, onLogout }: AdminPortalProps) {
     };
   };
 
-  // â”€â”€â”€ QR Card Download Handler â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ─── QR Card Download Handler ────────────────────────────────────────────
   const handleDownloadQRCard = async (member: Member) => {
     if (isDownloadingQR) return;
     setIsDownloadingQR(true);
@@ -404,7 +404,7 @@ export default function AdminPortal({ adminUser, onLogout }: AdminPortalProps) {
       const qrCanvas = qrCardCanvasRef.current;
       if (!qrCanvas) { setIsDownloadingQR(false); return; }
 
-      // Card dimensions â€” large enough for crisp printing at 300 DPI
+      // Card dimensions ” large enough for crisp printing at 300 DPI
       const CARD_W = 500;
       const CARD_H = 620;
       const QR_SIZE = 320; // actual QR pixel dimension
@@ -416,32 +416,32 @@ export default function AdminPortal({ adminUser, onLogout }: AdminPortalProps) {
       card.height = CARD_H;
       const ctx = card.getContext('2d')!;
 
-      // â”€â”€ Background â”€â”€
+      // ── Background ──
       ctx.fillStyle = '#FFFFFF';
       ctx.fillRect(0, 0, CARD_W, CARD_H);
 
-      // â”€â”€ Maroon header strip â”€â”€
+      // ── Maroon header strip ──
       ctx.fillStyle = '#800000';
       ctx.fillRect(0, 0, CARD_W, 90);
 
-      // â”€â”€ Header text: org name â”€â”€
+      // ── Header text: org name ──
       ctx.fillStyle = '#D4AF37';
       ctx.font = 'bold 17px serif';
       ctx.textAlign = 'center';
       ctx.fillText('VAJRANAD DHOL TASHA PATHAK', CARD_W / 2, 38);
       ctx.font = 'bold 11px monospace';
       ctx.fillStyle = '#fef9e0';
-      ctx.fillText('BELGAV, KARNATAKA â€¢ ATTENDANCE CARD', CARD_W / 2, 60);
+      ctx.fillText('BELGAV, KARNATAKA • ATTENDANCE CARD', CARD_W / 2, 60);
 
-      // â”€â”€ Member name â”€â”€
+      // ── Member name ──
       ctx.fillStyle = '#1a0000';
       ctx.font = 'bold 22px serif';
       ctx.textAlign = 'center';
       // Truncate long names gracefully
-      const displayName = member.name.length > 28 ? member.name.slice(0, 26) + 'â€¦' : member.name;
+      const displayName = member.name.length > 28 ? member.name.slice(0, 26) + '…' : member.name;
       ctx.fillText(displayName, CARD_W / 2, 130);
 
-      // â”€â”€ Instrument / role chip â”€â”€
+      // ── Instrument / role chip ──
       const role = member.instrument || 'Volunteer';
       const chipW = ctx.measureText(role).width + 32;
       const chipX = (CARD_W - chipW) / 2;
@@ -457,7 +457,7 @@ export default function AdminPortal({ adminUser, onLogout }: AdminPortalProps) {
       ctx.textAlign = 'center';
       ctx.fillText(role.toUpperCase(), CARD_W / 2, 163);
 
-      // â”€â”€ QR code image (from the hidden QRCodeCanvas) â”€â”€
+      // ── QR code image (from the hidden QRCodeCanvas) ──
       const qrImgData = qrCanvas.toDataURL();
       const qrImg = new Image();
       await new Promise<void>((resolve, reject) => {
@@ -477,14 +477,14 @@ export default function AdminPortal({ adminUser, onLogout }: AdminPortalProps) {
       ctx.stroke();
       ctx.drawImage(qrImg, qrX, qrY, QR_SIZE, QR_SIZE);
 
-      // â”€â”€ QR ID below the code (small mono text) â”€â”€
+      // ── QR ID below the code (small mono text) ──
       ctx.fillStyle = '#9ca3af';
       ctx.font = '9px monospace';
       ctx.textAlign = 'center';
-      const displayId = qrValue.length > 36 ? qrValue.slice(0, 34) + 'â€¦' : qrValue;
+      const displayId = qrValue.length > 36 ? qrValue.slice(0, 34) + '…' : qrValue;
       ctx.fillText('ID: ' + displayId, CARD_W / 2, qrY + QR_SIZE + 26);
 
-      // â”€â”€ Bottom divider + scan instruction â”€â”€
+      // ── Bottom divider + scan instruction ──
       ctx.fillStyle = '#800000';
       ctx.fillRect(PADDING, CARD_H - 60, CARD_W - PADDING * 2, 2);
       ctx.fillStyle = '#555555';
@@ -495,7 +495,7 @@ export default function AdminPortal({ adminUser, onLogout }: AdminPortalProps) {
       ctx.font = '9px monospace';
       ctx.fillText('vajranad.com', CARD_W / 2, CARD_H - 16);
 
-      // â”€â”€ Download â”€â”€
+      // ── Download ──
       const safeName = member.name.replace(/[^a-zA-Z0-9]/g, '_');
       const link = document.createElement('a');
       link.download = `QR_${safeName}.png`;
@@ -504,7 +504,7 @@ export default function AdminPortal({ adminUser, onLogout }: AdminPortalProps) {
       link.click();
       document.body.removeChild(link);
 
-      console.log(`[QR CARD] âœ“ Downloaded QR card for ${member.name} (qrCode=${qrValue})`);
+      console.log(`[QR CARD] ✓ Downloaded QR card for ${member.name} (qrCode=${qrValue})`);
     } catch (err) {
       console.error('[QR CARD] Failed to generate QR card:', err);
       alert('Failed to generate QR card. Please try again.');
@@ -512,9 +512,9 @@ export default function AdminPortal({ adminUser, onLogout }: AdminPortalProps) {
       setIsDownloadingQR(false);
     }
   };
-  // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ──────────────────────────────────────────────────────────────────────────
 
-  // â”€â”€â”€ Manual Attendance Override Handlers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ─── Manual Attendance Override Handlers ─────────────────────────────────
   const handleManualMarkPresent = async (memberId: string, bypassEligibility = false) => {
     if (!overrideSessionId) return;
     setOverrideLoading(memberId);
@@ -526,7 +526,7 @@ export default function AdminPortal({ adminUser, onLogout }: AdminPortalProps) {
     } else if (result.alreadyMarked) {
       setOverrideFeedback(prev => ({ ...prev, [memberId]: { type: 'info', msg: 'Already present' } }));
     } else if (result.success) {
-      setOverrideFeedback(prev => ({ ...prev, [memberId]: { type: 'success', msg: 'âœ“ Marked Present' } }));
+      setOverrideFeedback(prev => ({ ...prev, [memberId]: { type: 'success', msg: '✓ Marked Present' } }));
       loadData();
     } else {
       setOverrideFeedback(prev => ({ ...prev, [memberId]: { type: 'error', msg: result.error || 'Failed' } }));
@@ -540,13 +540,13 @@ export default function AdminPortal({ adminUser, onLogout }: AdminPortalProps) {
     const result = await store.manualRemoveAttendance(memberId, overrideSessionId, adminUser.name);
     setOverrideLoading(null);
     if (result.success) {
-      setOverrideFeedback(prev => ({ ...prev, [memberId]: { type: 'success', msg: 'âœ“ Marked Absent' } }));
+      setOverrideFeedback(prev => ({ ...prev, [memberId]: { type: 'success', msg: '✓ Marked Absent' } }));
       loadData();
     } else {
       setOverrideFeedback(prev => ({ ...prev, [memberId]: { type: 'error', msg: result.error || 'Failed' } }));
     }
   };
-  // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ──────────────────────────────────────────────────────────────────────────
 
   // Toggle member properties
   const handleToggleScanner = (member: Member) => {
@@ -613,7 +613,7 @@ export default function AdminPortal({ adminUser, onLogout }: AdminPortalProps) {
     setNewPerformanceDescription('');
     setNewPerformanceExpiry('48');
     loadData();
-    alert("âœ“ Performance callout request successfully created!");
+    alert("✓ Performance callout request successfully created!");
   };
 
   const handleTogglePerformanceRequest = (id: string) => {
@@ -625,7 +625,7 @@ export default function AdminPortal({ adminUser, onLogout }: AdminPortalProps) {
     if (confirm("Are you sure you want to delete this performance callout request? All responses will be lost.")) {
       console.log(`[ADMIN] [CALLOUT DELETE] Initiating deletion of callout id="${id}"...`);
       await store.deletePerformanceRequest(id);
-      console.log(`[ADMIN] [CALLOUT DELETE] âœ“ Callout id="${id}" fully removed from localStorage and Supabase. Reloading UI.`);
+      console.log(`[ADMIN] [CALLOUT DELETE] ✓ Callout id="${id}" fully removed from localStorage and Supabase. Reloading UI.`);
       loadData();
     }
   };
@@ -863,7 +863,7 @@ export default function AdminPortal({ adminUser, onLogout }: AdminPortalProps) {
       await saveCloudBackupToSupabase(backupDoc);
 
       console.log('[CLOUD BACKUP] Backup uploaded successfully:', downloadURL);
-      alert('âœ“ Success: Secure database backup successfully uploaded and pinned to the Cloud!');
+      alert('✓ Success: Secure database backup successfully uploaded and pinned to the Cloud!');
       setIsCloudBackingUp(false);
       loadCloudBackups();
     } catch (e: any) {
@@ -883,7 +883,7 @@ export default function AdminPortal({ adminUser, onLogout }: AdminPortalProps) {
       const dataStr = await response.text();
       const success = store.restoreBackup(dataStr);
       if (success) {
-        alert('âœ“ Database successfully restored from Cloud Backup! Page is refreshing records.');
+        alert('✓ Database successfully restored from Cloud Backup! Page is refreshing records.');
         loadData();
       } else {
         alert('Error: The backup file is corrupted or not in the correct format.');
@@ -914,7 +914,7 @@ export default function AdminPortal({ adminUser, onLogout }: AdminPortalProps) {
           <div>
             <h1 className="text-2xl font-bold font-serif uppercase tracking-wider leading-none">VAJRANAD BELGAV</h1>
             <p className="text-[10px] text-yellow-100 opacity-80 uppercase tracking-widest mt-1">
-              Vajranad Dhol Tasha Pathak, Belgav â€¢ Admin Portal
+              Vajranad Dhol Tasha Pathak, Belgav • Admin Portal
             </p>
           </div>
         </div>
@@ -1216,7 +1216,7 @@ export default function AdminPortal({ adminUser, onLogout }: AdminPortalProps) {
                                     className="text-[#800000] hover:text-[#52030d] font-bold underline cursor-pointer"
                                     title="View full profile"
                                   >
-                                    Profile â†’
+                                    Profile →
                                   </button>
                                 </div>
 
@@ -1448,7 +1448,7 @@ export default function AdminPortal({ adminUser, onLogout }: AdminPortalProps) {
                                     className="text-[10px] text-[#800000] hover:text-[#52030d] font-bold underline cursor-pointer"
                                     title="View full profile"
                                   >
-                                    View Profile â†’
+                                    View Profile →
                                   </button>
                                 </div>
                               </div>
@@ -1589,7 +1589,7 @@ export default function AdminPortal({ adminUser, onLogout }: AdminPortalProps) {
               {activeTab === 'attendance' && (
                 <div className="space-y-6">
 
-                  {/* â”€â”€ ADMIN MANUAL ATTENDANCE OVERRIDE PANEL â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
+                  {/* ── ADMIN MANUAL ATTENDANCE OVERRIDE PANEL ─────────────────── */}
                   <div className="bg-white border-2 border-[#D4AF37]/40 rounded-2xl p-6 shadow-sm">
                     <div className="flex items-center gap-2 border-b border-neutral-100 pb-3 mb-5">
                       <ClipboardEdit size={16} className="text-[#800000]" />
@@ -1599,13 +1599,13 @@ export default function AdminPortal({ adminUser, onLogout }: AdminPortalProps) {
                       <span className="text-[9px] font-black bg-[#800000] text-[#D4AF37] px-2 py-0.5 rounded-full uppercase tracking-wider">Admin Only</span>
                     </div>
                     <p className="text-xs text-neutral-500 mb-5 leading-relaxed">
-                      Mark any member Present or Absent for any past or current session â€” bypasses QR scan. Use to retroactively fix attendance due to QR failures, lost phones, or data errors.
+                      Mark any member Present or Absent for any past or current session ” bypasses QR scan. Use to retroactively fix attendance due to QR failures, lost phones, or data errors.
                     </p>
 
                     {/* Step 1: Session Selector */}
                     <div className="mb-5">
                       <label className="text-[10px] font-bold text-neutral-500 uppercase tracking-wider block mb-1.5">
-                        Step 1 â€” Select Session
+                        Step 1 ” Select Session
                       </label>
                       <div className="relative">
                         <select
@@ -1618,15 +1618,15 @@ export default function AdminPortal({ adminUser, onLogout }: AdminPortalProps) {
                           }}
                           className="w-full bg-[#FAF6EE] border-2 border-neutral-200 focus:border-[#800000] rounded-xl text-xs font-semibold px-4 py-2.5 text-neutral-700 outline-none appearance-none cursor-pointer transition-colors"
                         >
-                          <option value="">â€” Pick a session â€”</option>
+                          <option value="">” Pick a session ”</option>
                           {[...sessions]
                             .sort((a, b) => b.date.localeCompare(a.date))
                             .map(s => {
                               const count = records.filter(r => r.sessionId === s.id).length;
-                              const typeIcon = s.type === 'Practice' ? 'ðŸ¥' : s.type === 'Performance' ? 'ðŸŽº' : 'ðŸ“‹';
+                              const typeIcon = s.type === 'Practice' ? '🥁' : s.type === 'Performance' ? '🎺' : '📋';
                               return (
                                 <option key={s.id} value={s.id}>
-                                  {typeIcon} {s.date} â€¢ {s.type} â€” {s.title} ({count} present)
+                                  {typeIcon} {s.date} • {s.type} ” {s.title} ({count} present)
                                 </option>
                               );
                             })}
@@ -1654,7 +1654,7 @@ export default function AdminPortal({ adminUser, onLogout }: AdminPortalProps) {
                       return (
                         <div>
                           <label className="text-[10px] font-bold text-neutral-500 uppercase tracking-wider block mb-1.5">
-                            Step 2 â€” Find & Override Member
+                            Step 2 ” Find & Override Member
                           </label>
 
                           {/* Session info chip */}
@@ -1664,9 +1664,9 @@ export default function AdminPortal({ adminUser, onLogout }: AdminPortalProps) {
                             'bg-blue-50 text-blue-800 border-blue-200'
                           }`}>
                             <span>{selectedSession.type}</span>
-                            <span className="opacity-50">â€¢</span>
+                            <span className="opacity-50">•</span>
                             <span>{selectedSession.date} ({selectedSession.day})</span>
-                            <span className="opacity-50">â€¢</span>
+                            <span className="opacity-50">•</span>
                             <span>{selectedSession.title}</span>
                           </div>
 
@@ -1743,7 +1743,7 @@ export default function AdminPortal({ adminUser, onLogout }: AdminPortalProps) {
                                         <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full ${
                                           isPresent ? 'bg-green-600 text-white' : 'bg-neutral-200 text-neutral-500'
                                         }`}>
-                                          {isPresent ? 'âœ“ PRESENT' : 'ABSENT'}
+                                          {isPresent ? '✓ PRESENT' : 'ABSENT'}
                                         </span>
                                         {stats.overallPct < 50 && selectedSession.type === 'Performance' && (
                                           <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700">Low %</span>
@@ -1768,7 +1768,7 @@ export default function AdminPortal({ adminUser, onLogout }: AdminPortalProps) {
                                     {/* Right: action buttons */}
                                     <div className="flex items-center gap-1.5 shrink-0">
                                       {isLoading ? (
-                                        <span className="text-[10px] text-neutral-400 font-bold px-2">Savingâ€¦</span>
+                                        <span className="text-[10px] text-neutral-400 font-bold px-2">Saving…</span>
                                       ) : (
                                         <>
                                           <button
@@ -1808,7 +1808,7 @@ export default function AdminPortal({ adminUser, onLogout }: AdminPortalProps) {
                             )}
                           </div>
                           <p className="text-[10px] text-neutral-400 mt-3 text-center">
-                            {eligibleMembers.length} member(s) shown â€¢ All changes saved to Supabase immediately
+                            {eligibleMembers.length} member(s) shown • All changes saved to Supabase immediately
                           </p>
                         </div>
                       );
@@ -1821,7 +1821,7 @@ export default function AdminPortal({ adminUser, onLogout }: AdminPortalProps) {
                       </div>
                     )}
                   </div>
-                  {/* â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
+                  {/* ──────────────────────────────────────────────────────────── */}
 
                   {/* Attendance History & Reports */}
                   <div className="bg-white border border-neutral-200 rounded-2xl p-6 shadow-sm">
@@ -1854,7 +1854,7 @@ export default function AdminPortal({ adminUser, onLogout }: AdminPortalProps) {
                                   )}
                                 </div>
                                 <h4 className="font-bold text-neutral-800 text-sm mt-1.5">{s.title}</h4>
-                                <p className="text-[10px] text-neutral-400 mt-0.5">{s.date} ({s.day}) â€¢ Created by: {s.createdBy}</p>
+                                <p className="text-[10px] text-neutral-400 mt-0.5">{s.date} ({s.day}) • Created by: {s.createdBy}</p>
                               </div>
 
                               <div className="flex items-center gap-3">
@@ -1880,7 +1880,7 @@ export default function AdminPortal({ adminUser, onLogout }: AdminPortalProps) {
                                     setConfirmDialog({
                                       isOpen: true,
                                       title: 'Delete Attendance Session',
-                                      message: `âš ï¸ CRITICAL WARNING: Are you sure you want to permanently delete the attendance session "${s.title}" on ${s.date}? This action is irreversible and will delete all associated attendance scans.`,
+                                      message: `⚠️ CRITICAL WARNING: Are you sure you want to permanently delete the attendance session "${s.title}" on ${s.date}? This action is irreversible and will delete all associated attendance scans.`,
                                       onConfirm: () => {
                                         store.deleteSession(s.id);
                                         setConfirmDialog(null);
@@ -1973,14 +1973,14 @@ export default function AdminPortal({ adminUser, onLogout }: AdminPortalProps) {
 
                                   <div className="flex items-center justify-between pt-2 border-t border-neutral-100">
                                     <div className="flex gap-3 text-[10px] font-bold text-[#800000]">
-                                      <span>ðŸ“¢ {folderNoticesCount} Notices</span>
-                                      <span>ðŸ–¼ï¸ {folderMediaCount} Media</span>
+                                      <span>📢 {folderNoticesCount} Notices</span>
+                                      <span>ðŸ–¼️ {folderMediaCount} Media</span>
                                     </div>
                                     <button
                                       onClick={() => setSelectedFolder(f)}
                                       className="text-[10px] font-black uppercase text-white bg-[#800000] border border-[#D4AF37]/30 py-1 px-3 rounded-lg hover:bg-[#5d0000] cursor-pointer shadow-2xs"
                                     >
-                                      Manage Feed â†’
+                                      Manage Feed →
                                     </button>
                                   </div>
 
@@ -2076,7 +2076,7 @@ export default function AdminPortal({ adminUser, onLogout }: AdminPortalProps) {
                                   }}
                                   className="text-xs font-bold bg-white/10 hover:bg-white/25 text-white py-1 px-3 rounded-lg cursor-pointer transition-all uppercase tracking-wider flex items-center gap-1 border border-white/20"
                                 >
-                                  âœï¸ Edit Folder Details
+                                  âœ️ Edit Folder Details
                                 </button>
                               </div>
                               <h2 className="text-lg font-bold font-serif leading-tight">{selectedFolder.name}</h2>
@@ -2109,8 +2109,8 @@ export default function AdminPortal({ adminUser, onLogout }: AdminPortalProps) {
                                   className="w-full bg-[#FAF6EE] text-xs border border-neutral-200 rounded-lg px-3 py-2 outline-none text-neutral-700 font-semibold"
                                 >
                                   <option value="Practice Schedule">ðŸ¥ Practice Schedule</option>
-                                  <option value="Performance Details">ðŸ‘‘ Performance Details</option>
-                                  <option value="Announcement">ðŸ“¢ Announcements / News</option>
+                                  <option value="Performance Details">👑 Performance Details</option>
+                                  <option value="Announcement">📢 Announcements / News</option>
                                 </select>
                               </div>
                               <div className="space-y-1">
@@ -2314,13 +2314,13 @@ export default function AdminPortal({ adminUser, onLogout }: AdminPortalProps) {
 
                                     {fileError && (
                                       <div className="text-[10px] text-red-600 bg-red-50 p-2 rounded-lg border border-red-200 mt-1.5 font-bold leading-normal">
-                                        âš ï¸ {fileError}
+                                        ⚠️ {fileError}
                                       </div>
                                     )}
 
                                     {galleryUrl && !isProcessingFile && (
                                       <div className="text-[9px] text-emerald-600 font-bold mt-1">
-                                        âœ“ File loaded and uploaded successfully!
+                                        ✓ File loaded and uploaded successfully!
                                       </div>
                                     )}
                                   </div>
@@ -2366,7 +2366,7 @@ export default function AdminPortal({ adminUser, onLogout }: AdminPortalProps) {
                           {/* Section A: Published Notices inside this folder */}
                           <div className="bg-white border border-neutral-200 rounded-2xl p-5 shadow-sm space-y-4">
                             <h3 className="font-bold text-xs text-neutral-500 uppercase tracking-wider border-b border-neutral-100 pb-2 flex items-center gap-1">
-                              <span>ðŸ“¢ Notices in this Folder</span>
+                              <span>📢 Notices in this Folder</span>
                             </h3>
                             <div className="space-y-3">
                               {notices.filter(n => n.folderId === selectedFolder.id).length === 0 ? (
@@ -2411,7 +2411,7 @@ export default function AdminPortal({ adminUser, onLogout }: AdminPortalProps) {
                           {/* Section B: Published Photos/Videos inside this folder */}
                           <div className="bg-white border border-neutral-200 rounded-2xl p-5 shadow-sm space-y-4">
                             <h3 className="font-bold text-xs text-neutral-500 uppercase tracking-wider border-b border-neutral-100 pb-2">
-                              ðŸ–¼ï¸ Photos & Videos inside Folder
+                              ðŸ–¼️ Photos & Videos inside Folder
                             </h3>
                             <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
                               {gallery.filter(g => g.folderId === selectedFolder.id).length === 0 ? (
@@ -2622,7 +2622,7 @@ export default function AdminPortal({ adminUser, onLogout }: AdminPortalProps) {
                     {/* Create Form - 4 Cols */}
                     <div className="lg:col-span-4 bg-white border border-neutral-200 rounded-2xl p-5 shadow-sm space-y-4 h-fit">
                       <h4 className="font-serif font-bold text-neutral-800 text-sm border-b border-neutral-100 pb-3 flex items-center gap-1.5">
-                        ðŸ“¢ Create Callout
+                        📢 Create Callout
                       </h4>
                       <form onSubmit={handleCreatePerformanceRequest} className="space-y-3">
                         <div className="space-y-1">
@@ -2710,7 +2710,7 @@ export default function AdminPortal({ adminUser, onLogout }: AdminPortalProps) {
                     {/* Performance Callouts List & Counts - 8 Cols */}
                     <div className="lg:col-span-8 space-y-4">
                       <h4 className="font-serif font-bold text-neutral-800 text-sm flex items-center gap-1.5">
-                        ðŸ“‹ Performance Requests & RSVP Stats
+                        📋 Performance Requests & RSVP Stats
                       </h4>
 
                       {performanceRequests.length === 0 ? (
@@ -2787,18 +2787,18 @@ export default function AdminPortal({ adminUser, onLogout }: AdminPortalProps) {
                                       </span>
                                       {pr.isActive && !isExpired && (
                                         <span className="text-[9px] font-extrabold bg-blue-50 text-blue-700 px-2 py-0.5 rounded-full uppercase tracking-wider">
-                                          â° RSVP Open ({expiryHours}h Limit)
+                                          ⏰ RSVP Open ({expiryHours}h Limit)
                                         </span>
                                       )}
                                       {pr.isActive && isExpired && (
                                         <span className="text-[9px] font-extrabold bg-red-50 text-red-700 px-2 py-0.5 rounded-full uppercase tracking-wider">
-                                          ðŸ”’ Locked (Passed {expiryHours}h)
+                                          🔒 Locked (Passed {expiryHours}h)
                                         </span>
                                       )}
                                     </div>
                                     <p className="text-[10px] text-neutral-500 font-semibold flex flex-wrap items-center gap-x-3 gap-y-1 pt-0.5">
                                       <span>ðŸ“… Date: <strong className="text-neutral-700">{pr.date}</strong></span>
-                                      <span>â° Time: <strong className="text-neutral-700">{store.formatTo12Hour(pr.time)}</strong></span>
+                                      <span>⏰ Time: <strong className="text-neutral-700">{store.formatTo12Hour(pr.time)}</strong></span>
                                       <span>ðŸ“ Location: <strong className="text-[#800000]">{pr.location}</strong></span>
                                     </p>
                                     {pr.description && (
@@ -2919,7 +2919,7 @@ export default function AdminPortal({ adminUser, onLogout }: AdminPortalProps) {
                                     onClick={() => handleDownloadPerformanceRSVPsExcel(pr)}
                                     className="text-[10px] font-black bg-green-700 text-white px-4 py-2.5 rounded-xl uppercase tracking-wide border border-green-600 hover:bg-green-800 transition-all flex items-center gap-1.5 cursor-pointer shadow-sm"
                                   >
-                                    ðŸ“¥ Download RSVP List (Excel)
+                                    📥 Download RSVP List (Excel)
                                   </button>
                                   <button
                                     type="button"
@@ -2960,7 +2960,7 @@ export default function AdminPortal({ adminUser, onLogout }: AdminPortalProps) {
                     <div className="bg-white border border-neutral-200 rounded-2xl p-5 shadow-sm space-y-4">
                       <div className="flex justify-between items-center border-b border-neutral-100 pb-3">
                         <h4 className="font-serif font-bold text-neutral-800 text-sm flex items-center gap-1.5">
-                          ðŸ–¥ï¸ Browser LocalStorage
+                          ðŸ–¥️ Browser LocalStorage
                         </h4>
                         <span className="text-[10px] bg-amber-100 text-[#800000] px-2 py-0.5 rounded-md font-extrabold font-mono uppercase tracking-wide">
                           Strict 5MB Limit
@@ -3010,7 +3010,7 @@ export default function AdminPortal({ adminUser, onLogout }: AdminPortalProps) {
                                 <div className="bg-neutral-50 p-2 rounded-xl border border-neutral-100">
                                   <span className="text-neutral-400 block mb-0.5">Quota Limit Status</span>
                                   <span className={`${percentage > 85 ? 'text-red-600 font-black' : 'text-emerald-600 font-black'}`}>
-                                    {percentage > 85 ? 'âš ï¸ NEAR LIMIT' : 'âœ“ HEALTHY'}
+                                    {percentage > 85 ? '⚠️ NEAR LIMIT' : '✓ HEALTHY'}
                                   </span>
                                 </div>
                               </div>
@@ -3024,7 +3024,7 @@ export default function AdminPortal({ adminUser, onLogout }: AdminPortalProps) {
                     <div className="bg-white border border-neutral-200 rounded-2xl p-5 shadow-sm space-y-4">
                       <div className="flex justify-between items-center border-b border-neutral-100 pb-3">
                         <h4 className="font-serif font-bold text-neutral-800 text-sm flex items-center gap-1.5">
-                          â˜ï¸ Secure Cloud Storage
+                          â˜️ Secure Cloud Storage
                         </h4>
                         <span className="text-[10px] bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded-md font-extrabold font-mono uppercase tracking-wide animate-pulse">
                           Online & Scalable
@@ -3048,7 +3048,7 @@ export default function AdminPortal({ adminUser, onLogout }: AdminPortalProps) {
                             <div className="bg-gradient-to-r from-emerald-500 to-teal-500 h-full w-[15%] rounded-full"></div>
                           </div>
                           <p className="text-[10px] text-neutral-400 font-bold leading-normal italic text-right mt-1">
-                            âœ“ Auto-scales with growth â€¢ Spark Free Tier Active
+                            ✓ Auto-scales with growth • Spark Free Tier Active
                           </p>
                         </div>
                       </div>
@@ -3155,7 +3155,7 @@ export default function AdminPortal({ adminUser, onLogout }: AdminPortalProps) {
                                 </p>
                                 <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[10px] font-bold text-neutral-400 uppercase font-mono">
                                   <span>Size: <strong className="text-neutral-600">{b.size}</strong></span>
-                                  <span>â€¢</span>
+                                  <span>•</span>
                                   <span>Date: <strong className="text-neutral-600">{new Date(b.createdAt).toLocaleString('en-US', { dateStyle: 'short', timeStyle: 'short' })}</strong></span>
                                 </div>
                               </div>
@@ -3226,7 +3226,7 @@ export default function AdminPortal({ adminUser, onLogout }: AdminPortalProps) {
                           <p className="font-bold text-neutral-800 text-sm">Allow New Registrations</p>
                           <p className="text-xs text-neutral-500 mt-1 leading-relaxed">
                             When <strong>ON</strong>, new members can create accounts via the Sign Up form.<br />
-                            When <strong>OFF</strong>, the Sign Up form is hidden and all registration attempts â€” including direct API calls â€” are blocked and rejected server-side.
+                            When <strong>OFF</strong>, the Sign Up form is hidden and all registration attempts ” including direct API calls ” are blocked and rejected server-side.
                           </p>
                           {/* Status Badge */}
                           <div className="mt-3 flex items-center gap-2">
@@ -3244,7 +3244,7 @@ export default function AdminPortal({ adminUser, onLogout }: AdminPortalProps) {
                                 <span className={`w-2 h-2 rounded-full ${
                                   settingsRegOpen ? 'bg-green-500 animate-pulse' : 'bg-red-500'
                                 }`} />
-                                {settingsRegOpen ? 'OPEN â€” Accepting Registrations' : 'CLOSED â€” Registrations Blocked'}
+                                {settingsRegOpen ? 'OPEN ” Accepting Registrations' : 'CLOSED ” Registrations Blocked'}
                               </span>
                             )}
                           </div>
@@ -3266,13 +3266,13 @@ export default function AdminPortal({ adminUser, onLogout }: AdminPortalProps) {
                                 setSettingsRegOpen(newValue);
                                 setSettingsRegStatusMsg(
                                   newValue
-                                    ? 'âœ“ Registrations are now OPEN. New members can sign up.'
-                                    : 'âœ“ Registrations are now CLOSED. New sign-ups are blocked.'
+                                    ? '✓ Registrations are now OPEN. New members can sign up.'
+                                    : '✓ Registrations are now CLOSED. New sign-ups are blocked.'
                                 );
-                                console.log('[ADMIN SETTINGS] âœ“ Registration status successfully updated to:', newValue ? 'OPEN' : 'CLOSED');
+                                console.log('[ADMIN SETTINGS] ✓ Registration status successfully updated to:', newValue ? 'OPEN' : 'CLOSED');
                               } catch (err: any) {
-                                setSettingsRegStatusMsg(`âœ— Failed to update: ${err.message}`);
-                                console.error('[ADMIN SETTINGS] âœ— Failed to update registration status:', err);
+                                setSettingsRegStatusMsg(`✗ Failed to update: ${err.message}`);
+                                console.error('[ADMIN SETTINGS] ✗ Failed to update registration status:', err);
                               } finally {
                                 setIsTogglingRegistration(false);
                               }
@@ -3304,7 +3304,7 @@ export default function AdminPortal({ adminUser, onLogout }: AdminPortalProps) {
                           initial={{ opacity: 0, y: 4 }}
                           animate={{ opacity: 1, y: 0 }}
                           className={`mt-4 p-3 rounded-xl text-xs font-bold border ${
-                            settingsRegStatusMsg.startsWith('âœ“')
+                            settingsRegStatusMsg.startsWith('✓')
                               ? 'bg-green-50 border-green-200 text-green-700'
                               : 'bg-red-50 border-red-200 text-red-700'
                           }`}
@@ -3317,7 +3317,7 @@ export default function AdminPortal({ adminUser, onLogout }: AdminPortalProps) {
                       <div className="mt-5 pt-4 border-t border-neutral-100">
                         <p className="text-[10px] text-neutral-400 font-semibold flex items-center gap-1.5">
                           <Database size={11} className="text-[#D4AF37]" />
-                          Stored in: <code className="bg-neutral-100 px-1.5 py-0.5 rounded text-[9px] font-mono text-neutral-600">Supabase â†’ app_settings â†’ key: &apos;registrations_open&apos;</code>
+                          Stored in: <code className="bg-neutral-100 px-1.5 py-0.5 rounded text-[9px] font-mono text-neutral-600">Supabase → app_settings → key: &apos;registrations_open&apos;</code>
                         </p>
                         <p className="text-[10px] text-neutral-400 font-semibold mt-1 flex items-center gap-1.5">
                           <Shield size={11} className="text-[#D4AF37]" />
@@ -3559,7 +3559,7 @@ ON CONFLICT (key) DO NOTHING;`}</pre>
                   {viewingMemberDetails.medicalIssue ? (
                     <div className="space-y-1">
                       <p className="font-bold flex items-center gap-1">
-                        âš ï¸ ALERT: Medical Issue reported!
+                        ⚠️ ALERT: Medical Issue reported!
                       </p>
                       <p className="text-neutral-700 leading-normal font-medium pl-4">
                         {viewingMemberDetails.medicalIssueDescription}
@@ -3567,7 +3567,7 @@ ON CONFLICT (key) DO NOTHING;`}</pre>
                     </div>
                   ) : (
                     <p className="flex items-center gap-1">
-                      âœ… No medical issues or physical limitations reported by this member.
+                      ✅ No medical issues or physical limitations reported by this member.
                     </p>
                   )}
                 </div>
@@ -3608,7 +3608,7 @@ ON CONFLICT (key) DO NOTHING;`}</pre>
                   )}
                 </div>
 
-                {/* Hidden QRCodeCanvas â€” used as pixel source for card compositor */}
+                {/* Hidden QRCodeCanvas ” used as pixel source for card compositor */}
                 <div style={{ position: 'absolute', left: '-9999px', top: '-9999px', pointerEvents: 'none' }}>
                   <QRCodeCanvas
                     ref={qrCardCanvasRef}
@@ -3629,7 +3629,7 @@ ON CONFLICT (key) DO NOTHING;`}</pre>
                   className="w-full flex items-center justify-center gap-2 bg-[#800000] hover:bg-[#5d0000] disabled:opacity-60 disabled:cursor-not-allowed text-[#D4AF37] border border-[#D4AF37]/30 text-xs font-bold py-2.5 px-4 rounded-xl uppercase tracking-wider transition-all cursor-pointer shadow-sm"
                 >
                   <Download size={14} />
-                  {isDownloadingQR ? 'Generating Cardâ€¦' : 'Download QR Card (Print-Ready PNG)'}
+                  {isDownloadingQR ? 'Generating Card…' : 'Download QR Card (Print-Ready PNG)'}
                 </button>
               </div>
             </div>
@@ -3716,7 +3716,7 @@ ON CONFLICT (key) DO NOTHING;`}</pre>
           {/* Header */}
           <div className="text-center border-b-4 border-double border-[#800000] pb-4">
             <h1 className="text-3xl font-extrabold font-serif text-[#800000] tracking-wider uppercase">VAJRANAD DHOL TASHA PATHAK</h1>
-            <p className="text-xs text-neutral-500 uppercase tracking-widest font-bold mt-1">Belgav, Karnataka, India â€¢ Member & Committee Directory</p>
+            <p className="text-xs text-neutral-500 uppercase tracking-widest font-bold mt-1">Belgav, Karnataka, India • Member & Committee Directory</p>
             <div className="text-[10px] text-neutral-400 font-mono mt-2 uppercase">
               Export Date: {new Date().toLocaleDateString()} {new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true })}
             </div>
@@ -3763,7 +3763,7 @@ ON CONFLICT (key) DO NOTHING;`}</pre>
                   </div>
                   <div>
                     <span className="text-neutral-400 font-bold block uppercase text-[8px]">Gender & Blood Group</span>
-                    <span className="text-neutral-800 font-semibold">{m.gender || "N/A"} â€¢ Blood Group: {m.bloodGroup || "N/A"}</span>
+                    <span className="text-neutral-800 font-semibold">{m.gender || "N/A"} • Blood Group: {m.bloodGroup || "N/A"}</span>
                   </div>
 
                   {/* Row 4 - Parents */}
@@ -3827,7 +3827,7 @@ ON CONFLICT (key) DO NOTHING;`}</pre>
             <div className="bg-[#800000] text-[#D4AF37] px-6 py-4 flex items-center justify-between border-b-2 border-[#D4AF37]/30">
               <div>
                 <h3 className="font-serif font-black text-sm tracking-widest uppercase">Practice Attendance</h3>
-                <p className="text-[10px] text-white/80 font-mono mt-0.5">{viewingPracticeSessionRecords.title} â€¢ {viewingPracticeSessionRecords.date}</p>
+                <p className="text-[10px] text-white/80 font-mono mt-0.5">{viewingPracticeSessionRecords.title} • {viewingPracticeSessionRecords.date}</p>
               </div>
               <button
                 onClick={() => setViewingPracticeSessionRecords(null)}
@@ -3951,7 +3951,7 @@ ON CONFLICT (key) DO NOTHING;`}</pre>
                   Detailed RSVP Registry
                 </h4>
                 <p className="text-[10px] text-[#FFFDD0] font-bold mt-0.5">
-                  {selectedPerformanceRequest.title} â€¢ {selectedPerformanceRequest.date} ({store.formatTo12Hour(selectedPerformanceRequest.time)})
+                  {selectedPerformanceRequest.title} • {selectedPerformanceRequest.date} ({store.formatTo12Hour(selectedPerformanceRequest.time)})
                 </p>
               </div>
               <div className="flex items-center gap-2">
@@ -3960,7 +3960,7 @@ ON CONFLICT (key) DO NOTHING;`}</pre>
                   onClick={() => handleDownloadPerformanceRSVPsExcel(selectedPerformanceRequest)}
                   className="bg-green-700 hover:bg-green-800 text-white font-black text-[10px] uppercase tracking-wider px-3 py-2 rounded-xl transition-all cursor-pointer border border-green-600 flex items-center gap-1"
                 >
-                  ðŸ“¥ Download Excel
+                  📥 Download Excel
                 </button>
                 <button
                   type="button"
@@ -4012,10 +4012,10 @@ ON CONFLICT (key) DO NOTHING;`}</pre>
                                   <p className="font-serif font-bold text-xs text-neutral-800 truncate">{m.name}</p>
                                   <p className="text-[9px] text-[#800000] font-bold uppercase tracking-wider">{m.instrument}</p>
                                   <p className="text-[9px] text-neutral-400 font-semibold uppercase">
-                                    Joined: {m.yearJoined || 'Pending'} â€¢ <span className={isNew ? 'text-[#D4AF37] font-black' : 'text-neutral-500'}>{isNew ? 'New Member' : 'Experienced'}</span>
+                                    Joined: {m.yearJoined || 'Pending'} • <span className={isNew ? 'text-[#D4AF37] font-black' : 'text-neutral-500'}>{isNew ? 'New Member' : 'Experienced'}</span>
                                   </p>
                                   {m.mobileNumber && (
-                                    <p className="text-[9px] text-neutral-500 font-medium mt-0.5">ðŸ“ž {m.mobileNumber}</p>
+                                    <p className="text-[9px] text-neutral-500 font-medium mt-0.5">📞 {m.mobileNumber}</p>
                                   )}
                                 </div>
                               </div>
@@ -4050,10 +4050,10 @@ ON CONFLICT (key) DO NOTHING;`}</pre>
                                   <p className="font-serif font-bold text-xs text-neutral-800 truncate">{m.name}</p>
                                   <p className="text-[9px] text-[#800000] font-bold uppercase tracking-wider">{m.instrument}</p>
                                   <p className="text-[9px] text-neutral-400 font-semibold">
-                                    Joined: {m.yearJoined || 'Pending'} â€¢ {isNew ? 'New' : 'Experienced'}
+                                    Joined: {m.yearJoined || 'Pending'} • {isNew ? 'New' : 'Experienced'}
                                   </p>
                                   {m.mobileNumber && (
-                                    <p className="text-[9px] text-neutral-500 font-medium mt-0.5">ðŸ“ž {m.mobileNumber}</p>
+                                    <p className="text-[9px] text-neutral-500 font-medium mt-0.5">📞 {m.mobileNumber}</p>
                                   )}
                                 </div>
                               </div>
@@ -4088,10 +4088,10 @@ ON CONFLICT (key) DO NOTHING;`}</pre>
                                   <p className="font-serif font-bold text-xs text-neutral-800 truncate">{m.name}</p>
                                   <p className="text-[9px] text-[#800000] font-bold uppercase tracking-wider">{m.instrument}</p>
                                   <p className="text-[9px] text-neutral-400 font-semibold">
-                                    Joined: {m.yearJoined || 'Pending'} â€¢ {isNew ? 'New' : 'Experienced'}
+                                    Joined: {m.yearJoined || 'Pending'} • {isNew ? 'New' : 'Experienced'}
                                   </p>
                                   {m.mobileNumber && (
-                                    <p className="text-[9px] text-neutral-500 font-medium mt-0.5">ðŸ“ž {m.mobileNumber}</p>
+                                    <p className="text-[9px] text-neutral-500 font-medium mt-0.5">📞 {m.mobileNumber}</p>
                                   )}
                                 </div>
                               </div>
