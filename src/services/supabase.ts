@@ -250,10 +250,11 @@ export async function deleteMemberFromSupabase(memberId: string): Promise<void> 
 // ─────────────────────────────────────────────────────────────
 
 export async function saveSessionToSupabase(s: AttendanceSession): Promise<void> {
-  console.log(`[SUPABASE SAVE] Session "${s.title}" (${s.type}) on ${s.date}`);
+  console.log(`[SUPABASE SAVE] Session "${s.title}" (${s.type}) on ${s.date}, weight=${s.weight ?? 1}`);
   const { error } = await supabase.from('sessions').upsert({
     id: s.id, type: s.type, title: s.title, date: s.date,
     day: s.day, is_active: s.isActive, created_by: s.createdBy,
+    weight: s.weight ?? 1,
   }, { onConflict: 'id' });
   if (error) console.error('[SUPABASE SAVE] ✗ Session save failed:', error.message);
   else console.log('[SUPABASE SAVE] ✓ Session saved.');
@@ -272,6 +273,7 @@ export async function getAllSessionsFromSupabase(): Promise<AttendanceSession[]>
   const rows = (data ?? []).map((r: any): AttendanceSession => ({
     id: r.id, type: r.type, title: r.title, date: r.date,
     day: r.day, isActive: r.is_active, createdBy: r.created_by,
+    weight: typeof r.weight === 'number' ? r.weight : 1, // fallback for legacy rows
   }));
   console.log(`[SUPABASE READ] ✓ Fetched ${rows.length} session(s).`);
   return rows;

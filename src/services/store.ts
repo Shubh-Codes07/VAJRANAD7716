@@ -652,7 +652,7 @@ class VajranadStore {
    * or creates a new one if none exists. Ensures only ONE session per type per day
    * regardless of which device or user triggers the scan.
    */
-  public async createOrJoinSession(type: AttendanceType, title: string, creatorName: string): Promise<AttendanceSession> {
+  public async createOrJoinSession(type: AttendanceType, title: string, creatorName: string, weight: number = 1): Promise<AttendanceSession> {
     const weekdays = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
     const today = new Date();
     const dateStr = today.toISOString().split('T')[0];
@@ -693,7 +693,7 @@ class VajranadStore {
     }
 
     // --- Step 3: No session anywhere — create a brand new one ---
-    console.log(`[SESSION] No existing ${type} session found for ${dateStr}. Creating new session...`);
+    console.log(`[SESSION] No existing ${type} session found for ${dateStr}. Creating new session (weight=${weight})...`);
 
     // Deactivate all currently active sessions first
     sessions.forEach(s => {
@@ -710,19 +710,20 @@ class VajranadStore {
       date: dateStr,
       day: dayStr,
       isActive: true,
-      createdBy: creatorName
+      createdBy: creatorName,
+      weight,
     };
 
     sessions.push(newSession);
     localStorage.setItem(this.sessionsKey, JSON.stringify(sessions));
     this.saveSessionToFirestore(newSession);
 
-    console.log(`[SESSION] ✓ Created new ${type} session: id=${newSession.id}`);
+    console.log(`[SESSION] ✓ Created new ${type} session: id=${newSession.id}, weight=${weight}`);
     return newSession;
   }
 
   /** @deprecated Use createOrJoinSession instead. Kept for sync-only internal calls. */
-  public createSession(type: AttendanceType, title: string, creatorName: string): AttendanceSession {
+  public createSession(type: AttendanceType, title: string, creatorName: string, weight: number = 1): AttendanceSession {
     const sessions = this.getSessions();
 
     // Deactivate all previous sessions
@@ -755,13 +756,14 @@ class VajranadStore {
       date: dateStr,
       day: dayStr,
       isActive: true,
-      createdBy: creatorName
+      createdBy: creatorName,
+      weight,
     };
 
     sessions.push(newSession);
     localStorage.setItem(this.sessionsKey, JSON.stringify(sessions));
     this.saveSessionToFirestore(newSession);
-    console.log(`[SESSION] ✓ Created new ${type} session: ${newSession.id}`);
+    console.log(`[SESSION] ✓ Created new ${type} session: ${newSession.id}, weight=${weight}`);
     return newSession;
   }
 
@@ -828,50 +830,82 @@ class VajranadStore {
     const records = this.getAttendanceRecords();
     const sessions = this.getSessions();
 
-    const uniqueSessions = sessions.filter((s, index, self) => 
-      index === self.findIndex((t) => (
-        t.type === s.type && t.date === s.date
-      ))
+    // De-duplicate sessions by (type, date) — same logic as before
+    const uniqueSessions = sessions.filter((s, index, self) =>
+      index === self.findIndex((t) => t.type === s.type && t.date === s.date)
     );
 
+    // ── Weighted totals for each category (held) ──────────────────────────────
+    let practiceWeightHeld = 0;
+    let performanceWeightHeld = 0;
+    let meetingWeightHeld = 0;
+
+    // Also track simple counts for backward-compat return values
     let practiceHeld = 0;
-    let practiceAttended = 0;
     let performanceHeld = 0;
-    let performanceAttended = 0;
     let meetingHeld = 0;
-    let meetingAttended = 0;
 
     for (const s of uniqueSessions) {
-      if (s.type === 'Practice') practiceHeld++;
-      else if (s.type === 'Performance') performanceHeld++;
-      else if (s.type === 'Meeting') meetingHeld++;
+      const w = typeof s.weight === 'number' && s.weight > 0 ? s.weight : 1;
+      console.log(`[STATS] Session ${s.id} | date=${s.date} | type=${s.type} | weight=${w}`);
+      if (s.type === 'Practice')     { practiceWeightHeld     += w; practiceHeld++;     }
+      else if (s.type === 'Performance') { performanceWeightHeld  += w; performanceHeld++;  }
+      else if (s.type === 'Meeting')  { meetingWeightHeld      += w; meetingHeld++;      }
     }
+
+    // ── Weighted totals for each category (attended by this member) ───────────
+    let practiceWeightAttended = 0;
+    let performanceWeightAttended = 0;
+    let meetingWeightAttended = 0;
+
+    // Simple counts (for return values)
+    let practiceAttended = 0;
+    let performanceAttended = 0;
+    let meetingAttended = 0;
 
     const memberRecords = records.filter(r => r.memberId === memberId);
-    const uniqueAttendedDates = new Set();
-    
+    // Track which (type, date) combos have already been counted
+    const countedKeys = new Set<string>();
+
     for (const r of memberRecords) {
       const key = `${r.type}-${r.date}`;
-      if (!uniqueAttendedDates.has(key)) {
-        uniqueAttendedDates.add(key);
-        if (r.type === 'Practice') practiceAttended++;
-        else if (r.type === 'Performance') performanceAttended++;
-        else if (r.type === 'Meeting') meetingAttended++;
-      }
+      if (countedKeys.has(key)) continue;
+      countedKeys.add(key);
+
+      // Find the matching session to get its weight
+      const matchedSession = uniqueSessions.find(s => s.type === r.type && s.date === r.date);
+      const w = matchedSession && typeof matchedSession.weight === 'number' && matchedSession.weight > 0
+        ? matchedSession.weight
+        : 1;
+
+      console.log(`[STATS] Member ${memberId} attended ${r.type} on ${r.date} | session weight=${w}`);
+
+      if (r.type === 'Practice')      { practiceWeightAttended     += w; practiceAttended++;     }
+      else if (r.type === 'Performance') { performanceWeightAttended  += w; performanceAttended++;  }
+      else if (r.type === 'Meeting')   { meetingWeightAttended       += w; meetingAttended++;      }
     }
 
-    const practicePct = practiceHeld > 0 ? (practiceAttended / practiceHeld) * 100 : 100;
-    const performancePct = performanceHeld > 0 ? (performanceAttended / performanceHeld) * 100 : 100;
-    const meetingPct = meetingHeld > 0 ? (meetingAttended / meetingHeld) * 100 : 100;
+    // ── Percentage calculations (weighted) ────────────────────────────────────
+    const practicePct    = practiceWeightHeld    > 0 ? (practiceWeightAttended    / practiceWeightHeld)    * 100 : 100;
+    const performancePct = performanceWeightHeld > 0 ? (performanceWeightAttended / performanceWeightHeld) * 100 : 100;
+    const meetingPct     = meetingWeightHeld     > 0 ? (meetingWeightAttended     / meetingWeightHeld)     * 100 : 100;
 
-    const totalHeld = practiceHeld + performanceHeld + meetingHeld;
-    const totalAttended = practiceAttended + performanceAttended + meetingAttended;
-    const overallPct = totalHeld > 0 ? (totalAttended / totalHeld) * 100 : 100;
+    const totalWeightHeld     = practiceWeightHeld + performanceWeightHeld + meetingWeightHeld;
+    const totalWeightAttended = practiceWeightAttended + performanceWeightAttended + meetingWeightAttended;
+    const overallPct = totalWeightHeld > 0 ? (totalWeightAttended / totalWeightHeld) * 100 : 100;
+
+    console.log(
+      `[STATS] Member ${memberId} summary |` +
+      ` practice=${practiceWeightAttended.toFixed(2)}/${practiceWeightHeld.toFixed(2)}` +
+      ` perf=${performanceWeightAttended.toFixed(2)}/${performanceWeightHeld.toFixed(2)}` +
+      ` meeting=${meetingWeightAttended.toFixed(2)}/${meetingWeightHeld.toFixed(2)}` +
+      ` overall=${overallPct.toFixed(2)}%`
+    );
 
     const shortages: string[] = [];
-    if (practiceHeld > 0 && practicePct < 50) shortages.push('Practice');
-    if (performanceHeld > 0 && performancePct < 60) shortages.push('Performance');
-    if (meetingHeld > 0 && meetingPct < 75) shortages.push('Meeting');
+    if (practiceHeld     > 0 && practicePct    < 50) shortages.push('Practice');
+    if (performanceHeld  > 0 && performancePct < 60) shortages.push('Performance');
+    if (meetingHeld      > 0 && meetingPct     < 75) shortages.push('Meeting');
 
     return {
       practicePct,
@@ -884,7 +918,7 @@ class VajranadStore {
       performanceAttended,
       performanceHeld,
       meetingAttended,
-      meetingHeld
+      meetingHeld,
     };
   }
 

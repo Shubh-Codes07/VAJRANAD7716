@@ -43,6 +43,10 @@ export interface AttendanceSession {
   day: string;
   isActive: boolean;
   createdBy: string;
+  /** Weight multiplier for attendance percentage calculations. Default = 1.
+   *  e.g. set to 2 for a session that counts double, 0.5 for half-credit.
+   *  Legacy sessions without this field are treated as weight 1. */
+  weight?: number;
 }
 
 export interface AttendanceRecord {
