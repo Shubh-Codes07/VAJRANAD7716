@@ -249,15 +249,20 @@ export async function deleteMemberFromSupabase(memberId: string): Promise<void> 
 // DATABASE: Sessions
 // ─────────────────────────────────────────────────────────────
 
-export async function saveSessionToSupabase(s: AttendanceSession): Promise<void> {
-  console.log(`[SUPABASE SAVE] Session "${s.title}" (${s.type}) on ${s.date}, weight=${s.weight ?? 1}`);
+export async function saveSessionToSupabase(s: AttendanceSession): Promise<{ success: boolean; error?: string }> {
+  console.log(`[SUPABASE SAVE START] Session "${s.title}" (${s.type}) on ${s.date}, weight=${s.weight ?? 1}`);
   const { error } = await supabase.from('sessions').upsert({
     id: s.id, type: s.type, title: s.title, date: s.date,
     day: s.day, is_active: s.isActive, created_by: s.createdBy,
     weight: s.weight ?? 1,
   }, { onConflict: 'id' });
-  if (error) console.error('[SUPABASE SAVE] ✗ Session save failed:', error.message);
-  else console.log('[SUPABASE SAVE] ✓ Session saved.');
+  if (error) {
+    console.error('[SUPABASE SAVE ERROR] Session save failed:', error.message);
+    return { success: false, error: error.message };
+  } else {
+    console.log('[SUPABASE SAVE SUCCESS] Session saved.');
+    return { success: true };
+  }
 }
 
 export async function deleteSessionFromSupabase(id: string): Promise<void> {
@@ -283,16 +288,22 @@ export async function getAllSessionsFromSupabase(): Promise<AttendanceSession[]>
 // DATABASE: Attendance Records
 // ─────────────────────────────────────────────────────────────
 
-export async function saveRecordToSupabase(r: AttendanceRecord): Promise<void> {
-  console.log(`[SUPABASE SAVE] Record: ${r.memberName} @ session ${r.sessionId}`);
-  const { error } = await supabase.from('records').upsert({
+export async function saveRecordToSupabase(r: AttendanceRecord): Promise<{ success: boolean; error?: string }> {
+  const payload = {
     id: r.id, session_id: r.sessionId, member_id: r.memberId,
     member_name: r.memberName, instrument: r.instrument,
     scan_time: r.scanTime, scanned_by: r.scannedBy,
     type: r.type, date: r.date,
-  }, { onConflict: 'id' });
-  if (error) console.error('[SUPABASE SAVE] ✗ Record save failed:', error.message);
-  else console.log('[SUPABASE SAVE] ✓ Record saved.');
+  };
+  console.log(`[SUPABASE SAVE START] Payload:`, payload);
+  const { data, error } = await supabase.from('records').upsert(payload, { onConflict: 'id' }).select();
+  if (error) {
+    console.error('[SUPABASE SAVE ERROR] Record save failed:', error.message, error.details, error.hint);
+    return { success: false, error: error.message };
+  } else {
+    console.log('[SUPABASE SAVE SUCCESS] Record saved. Returned data:', data);
+    return { success: true };
+  }
 }
 
 export async function deleteRecordFromSupabase(id: string): Promise<void> {

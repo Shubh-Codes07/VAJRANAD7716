@@ -94,12 +94,15 @@ class VajranadStore {
     deleteRecordFromSupabase(id);
   }
 
-  private saveSessionToFirestore(s: AttendanceSession) {
-    saveSessionToSupabase(s);
+  private async saveSessionToFirestore(s: AttendanceSession) {
+    const res = await saveSessionToSupabase(s);
+    if (!res.success) {
+      console.error(`[STORE] Session save failed for ${s.id}. Subsequent records for this session will fail to save in Supabase due to foreign key constraints!`);
+    }
   }
 
-  private saveRecordToFirestore(r: AttendanceRecord) {
-    saveRecordToSupabase(r);
+  private async saveRecordToFirestore(r: AttendanceRecord) {
+    await saveRecordToSupabase(r);
   }
 
   private saveNoticeToFirestore(n: Notice) {
@@ -716,7 +719,7 @@ class VajranadStore {
 
     sessions.push(newSession);
     localStorage.setItem(this.sessionsKey, JSON.stringify(sessions));
-    this.saveSessionToFirestore(newSession);
+    await this.saveSessionToFirestore(newSession);
 
     console.log(`[SESSION] ✓ Created new ${type} session: id=${newSession.id}, weight=${weight}`);
     return newSession;
@@ -1010,7 +1013,13 @@ class VajranadStore {
 
     localRecords.push(newRecord);
     localStorage.setItem(this.recordsKey, JSON.stringify(localRecords));
-    this.saveRecordToFirestore(newRecord);
+    
+    // Await the write to Supabase so we know if it succeeded
+    const saveRes = await saveRecordToSupabase(newRecord);
+    if (!saveRes.success) {
+      console.error(`[SCAN] Supabase save failed for ${member.name}, but saved locally fallback.`);
+      // We don't fail the scan entirely for offline resilience, but we log it clearly
+    }
 
     console.log(`[SCAN] ✓ MARKED PRESENT: ${member.name} for ${session.type} on ${session.date} at ${timeStr} (scanned by ${scannedBy})`);
     return { success: true, record: newRecord, member };
