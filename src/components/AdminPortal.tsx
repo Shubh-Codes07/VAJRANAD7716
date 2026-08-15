@@ -4,7 +4,7 @@ import { Users, Calendar, Megaphone, Image as ImageIcon, BarChart2, ShieldAlert,
 import { QRCodeCanvas } from 'qrcode.react';
 import html2canvasSafe from '../services/html2canvasSafe';
 import jsPDF from 'jspdf';
-import { store, calculateAge } from '../services/store';
+import { store, calculateAge, getLocalDateString } from '../services/store';
 import { db } from '../services/firebase';
 import { supabase, uploadGalleryFile, saveCloudBackupToSupabase, deleteCloudBackupFromSupabase, getAllCloudBackupsFromSupabase, getRegistrationStatus, setRegistrationStatus } from '../services/supabase';
 import { collection, doc, setDoc, deleteDoc, getDocs } from 'firebase/firestore';
@@ -1900,6 +1900,12 @@ export default function AdminPortal({ adminUser, onLogout }: AdminPortalProps) {
                       ) : (
                         sessions.map((s) => {
                           const count = records.filter(r => r.sessionId === s.id).length;
+                          const appTodayDate = getLocalDateString();
+                          const isActiveNow = s.isActive && s.date === appTodayDate;
+                          
+                          // Logging for debugging the stale session issue
+                          console.log(`[BADGE-CHECK] Session: "${s.title}" (${s.date}) | App Today: ${appTodayDate} | is marked active in db: ${s.isActive} | SHOW ACTIVE NOW BADGE: ${isActiveNow}`);
+
                           return (
                             <div
                               key={s.id}
@@ -1912,7 +1918,7 @@ export default function AdminPortal({ adminUser, onLogout }: AdminPortalProps) {
                                   }`}>
                                     {s.type}
                                   </span>
-                                  {s.isActive && (
+                                  {isActiveNow && (
                                     <span className="bg-green-600 text-white text-[9px] font-bold px-2 py-0.5 rounded-full animate-pulse">
                                       ACTIVE NOW
                                     </span>

@@ -637,7 +637,7 @@ class VajranadStore {
     if (!active) return null;
 
     // Auto-deactivate session if the date is in the past
-    const todayDateStr = new Date().toISOString().split('T')[0];
+    const todayDateStr = getLocalDateString();
     if (active.date !== todayDateStr) {
       active.isActive = false;
       this.saveSessionToFirestore(active);
@@ -655,7 +655,7 @@ class VajranadStore {
   public async createOrJoinSession(type: AttendanceType, title: string, creatorName: string, weight: number = 1): Promise<AttendanceSession> {
     const weekdays = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
     const today = new Date();
-    const dateStr = today.toISOString().split('T')[0];
+    const dateStr = getLocalDateString();
     const dayStr = weekdays[today.getDay()];
 
     // --- Step 1: Check Supabase for an existing session (cross-device source of truth) ---
@@ -736,7 +736,7 @@ class VajranadStore {
 
     const weekdays = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
     const today = new Date();
-    const dateStr = today.toISOString().split('T')[0];
+    const dateStr = getLocalDateString();
     const dayStr = weekdays[today.getDay()];
 
     // Join existing local session if found
@@ -1219,7 +1219,7 @@ class VajranadStore {
 
   public createNotice(title: string, content: string, type: Notice['type'], folderId?: string): Notice {
     const notices = this.getNotices();
-    const todayStr = new Date().toISOString().split('T')[0];
+    const todayStr = getLocalDateString();
 
     const newNotice: Notice = {
       id: 'not_' + Math.random().toString(36).substr(2, 9),
@@ -1542,6 +1542,12 @@ class VajranadStore {
     this.savePerformanceRequestToFirestore(target);
     return { success: true };
   }
+}
+
+export function getLocalDateString(): string {
+  const d = new Date();
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
 export const store = new VajranadStore();
