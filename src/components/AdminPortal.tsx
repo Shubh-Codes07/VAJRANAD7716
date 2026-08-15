@@ -114,7 +114,11 @@ export default function AdminPortal({ adminUser, onLogout }: AdminPortalProps) {
   const [selectedReportSession, setSelectedReportSession] = useState<AttendanceSession | null>(null);
   const [viewingPracticeSessionRecords, setViewingPracticeSessionRecords] = useState<AttendanceSession | null>(null);
 
-  // Manual Attendance Override Panel
+  const [showCreateSessionModal, setShowCreateSessionModal] = useState(false);
+  const [newSessionData, setNewSessionData] = useState({ type: 'Practice' as AttendanceType, date: getLocalDateString(), weight: 1 });
+  const [isCreatingSession, setIsCreatingSession] = useState(false);
+
+  // Manual Attendance
   const [overrideSessionId, setOverrideSessionId] = useState<string>('');
   const [overrideMemberSearch, setOverrideMemberSearch] = useState<string>('');
   const [overrideLoading, setOverrideLoading] = useState<string | null>(null); // memberId being processed
@@ -514,7 +518,41 @@ export default function AdminPortal({ adminUser, onLogout }: AdminPortalProps) {
   };
   // ──────────────────────────────────────────────────────────────────────────
 
-  // ─── Manual Attendance Override Handlers ─────────────────────────────────
+  // ── Manual Attendance Override Handlers ──
+  
+  const handleExplicitCreateSession = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newSessionData.type || !newSessionData.date) {
+      alert("Please select a session type and date.");
+      return;
+    }
+    
+    setIsCreatingSession(true);
+    try {
+      const result = await store.adminCreateExplicitSession(
+        newSessionData.type,
+        newSessionData.date,
+        currentUser.name,
+        newSessionData.weight
+      );
+      
+      if (result.success && result.session) {
+        // Reload sessions to update the dropdown
+        loadData();
+        // Auto-select the newly created session
+        setOverrideSessionId(result.session.id);
+        setShowCreateSessionModal(false);
+        alert(`Session created successfully! You can now manually mark attendance for it.`);
+      } else {
+        alert(`Failed to create session: ${result.error}`);
+      }
+    } catch (err: any) {
+      alert(`Error creating session: ${err.message}`);
+    } finally {
+      setIsCreatingSession(false);
+    }
+  };
+
   const handleManualMarkPresent = async (memberId: string, bypassEligibility = false) => {
     if (!overrideSessionId) return;
     setOverrideLoading(memberId);
@@ -1654,9 +1692,18 @@ export default function AdminPortal({ adminUser, onLogout }: AdminPortalProps) {
 
                     {/* Step 1: Session Selector */}
                     <div className="mb-5">
-                      <label className="text-[10px] font-bold text-neutral-500 uppercase tracking-wider block mb-1.5">
-                        Step 1 ” Select Session
-                      </label>
+                      <div className="flex items-center justify-between mb-1.5">
+                        <label className="text-[10px] font-bold text-neutral-500 uppercase tracking-wider block">
+                          Step 1 ” Select Session
+                        </label>
+                        <button
+                          type="button"
+                          onClick={() => setShowCreateSessionModal(true)}
+                          className="bg-[#D4AF37] hover:bg-[#b08d20] text-[#800000] text-[10px] font-black px-3 py-1 rounded-md uppercase tracking-wider transition-all shadow-sm"
+                        >
+                          + Create Session
+                        </button>
+                      </div>
                       <div className="relative">
                         <select
                           id="override-session-select"
@@ -3756,6 +3803,82 @@ ON CONFLICT (key) DO NOTHING;`}</pre>
                 </button>
               </div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Explicit Create Session Modal */}
+      {showCreateSessionModal && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-3xl w-full max-w-md shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">
+            <div className="bg-gradient-to-r from-[#800000] to-[#5a0000] p-6 text-white text-center">
+              <h2 className="text-xl font-bold font-serif tracking-widest uppercase">Create Session</h2>
+              <p className="text-xs text-white/70 mt-1 uppercase tracking-wider font-bold">Manual Admin Override Session</p>
+            </div>
+            
+            <form onSubmit={handleExplicitCreateSession} className="p-6 space-y-5">
+              <div>
+                <label className="text-[10px] font-bold text-neutral-500 uppercase tracking-wider block mb-2">Session Type</label>
+                <div className="flex gap-2">
+                  {['Practice', 'Performance', 'Meeting'].map((type) => (
+                    <button
+                      key={type}
+                      type="button"
+                      onClick={() => setNewSessionData(prev => ({ ...prev, type: type as AttendanceType }))}
+                      className={`flex-1 py-2 text-xs font-bold rounded-xl transition-all ${
+                        newSessionData.type === type 
+                          ? 'bg-[#800000] text-white shadow-md' 
+                          : 'bg-neutral-100 text-neutral-500 hover:bg-neutral-200'
+                      }`}
+                    >
+                      {type}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <label className="text-[10px] font-bold text-neutral-500 uppercase tracking-wider block mb-2">Session Date</label>
+                <input
+                  type="date"
+                  required
+                  value={newSessionData.date}
+                  onChange={(e) => setNewSessionData(prev => ({ ...prev, date: e.target.value }))}
+                  className="w-full bg-neutral-50 border-2 border-neutral-200 focus:border-[#800000] rounded-xl px-4 py-3 text-sm outline-none transition-colors font-mono"
+                />
+              </div>
+
+              <div>
+                <label className="text-[10px] font-bold text-neutral-500 uppercase tracking-wider block mb-2">Session Weight</label>
+                <input
+                  type="number"
+                  step="0.5"
+                  min="0"
+                  required
+                  value={newSessionData.weight}
+                  onChange={(e) => setNewSessionData(prev => ({ ...prev, weight: parseFloat(e.target.value) || 1 }))}
+                  className="w-full bg-neutral-50 border-2 border-neutral-200 focus:border-[#800000] rounded-xl px-4 py-3 text-sm outline-none transition-colors font-mono"
+                />
+                <p className="text-[9px] text-neutral-400 mt-1">Default is 1. E.g. set to 2 for double weight.</p>
+              </div>
+
+              <div className="flex gap-3 pt-4 border-t border-neutral-100">
+                <button
+                  type="button"
+                  onClick={() => setShowCreateSessionModal(false)}
+                  className="flex-1 py-3 text-xs font-bold text-neutral-500 bg-neutral-100 hover:bg-neutral-200 rounded-xl transition-all"
+                >
+                  CANCEL
+                </button>
+                <button
+                  type="submit"
+                  disabled={isCreatingSession}
+                  className="flex-1 py-3 text-xs font-bold text-white bg-[#D4AF37] hover:bg-[#b08d20] rounded-xl shadow-md transition-all disabled:opacity-50"
+                >
+                  {isCreatingSession ? 'CREATING...' : 'CREATE SESSION'}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

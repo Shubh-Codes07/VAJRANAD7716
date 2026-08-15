@@ -656,6 +656,7 @@ class VajranadStore {
    * regardless of which device or user triggers the scan.
    */
   public async createOrJoinSession(type: AttendanceType, title: string, creatorName: string, weight: number = 1): Promise<AttendanceSession> {
+    console.log(`[SESSION] [PATH: QR AUTO-DETECTION] Attempting to create or join session automatically...`);
     const weekdays = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
     const today = new Date();
     const dateStr = getLocalDateString();
@@ -723,6 +724,48 @@ class VajranadStore {
 
     console.log(`[SESSION] ✓ Created new ${type} session: id=${newSession.id}, weight=${weight}`);
     return newSession;
+  }
+
+  // --- EXPLICIT ADMIN CREATION PATH (For manual overrides/past sessions) ---
+  public async adminCreateExplicitSession(
+    type: AttendanceType,
+    dateStr: string,
+    creatorName: string,
+    weight: number = 1
+  ): Promise<{ success: boolean; session?: AttendanceSession; error?: string }> {
+    console.log(`[SESSION] [PATH: EXPLICIT ADMIN CREATION] Creating manual ${type} session for ${dateStr} by ${creatorName}...`);
+    
+    const d = new Date(dateStr);
+    const weekdays = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+    const dayStr = weekdays[d.getDay()] || 'Unknown';
+    
+    // We construct the title similarly to QR scanner
+    const title = `${type} Session - ${dateStr.split('-').reverse().join('/')}, ${dayStr}`;
+
+    const newSession: AttendanceSession = {
+      id: 'sess_admin_' + Math.random().toString(36).substr(2, 9),
+      type,
+      title,
+      date: dateStr,
+      day: dayStr,
+      isActive: false, // Explicit admin sessions shouldn't auto-hijack the QR scanner
+      createdBy: creatorName,
+      weight,
+    };
+
+    const sessions = this.getSessions();
+    sessions.push(newSession);
+    localStorage.setItem(this.sessionsKey, JSON.stringify(sessions));
+    
+    // Await the write to Supabase
+    const res = await saveSessionToSupabase(newSession);
+    if (!res.success) {
+      console.error(`[SESSION] Explicit admin creation failed in Supabase:`, res.error);
+      return { success: false, error: res.error };
+    }
+
+    console.log(`[SESSION] [PATH: EXPLICIT ADMIN CREATION] ✓ Success. id=${newSession.id}`);
+    return { success: true, session: newSession };
   }
 
   /** @deprecated Use createOrJoinSession instead. Kept for sync-only internal calls. */
