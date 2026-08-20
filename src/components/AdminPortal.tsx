@@ -6,7 +6,7 @@ import html2canvasSafe from '../services/html2canvasSafe';
 import jsPDF from 'jspdf';
 import { store, calculateAge, getLocalDateString } from '../services/store';
 import { db } from '../services/firebase';
-import { supabase, uploadGalleryFile, saveCloudBackupToSupabase, deleteCloudBackupFromSupabase, getAllCloudBackupsFromSupabase, getRegistrationStatus, setRegistrationStatus } from '../services/supabase';
+import { supabase, uploadGalleryFile, saveCloudBackupToSupabase, deleteCloudBackupFromSupabase, getAllCloudBackupsFromSupabase, getRegistrationStatus, setRegistrationStatus, getAllSessionsFromSupabase, getAllRecordsFromSupabase } from '../services/supabase';
 import { collection, doc, setDoc, deleteDoc, getDocs } from 'firebase/firestore';
 import { Member, AttendanceSession, AttendanceRecord, Notice, GalleryItem, Folder, Instrument, AttendanceType, EventCountdown, PerformanceRequest } from '../types';
 import ReportExporter from './ReportExporter';
@@ -164,16 +164,46 @@ export default function AdminPortal({ adminUser, onLogout }: AdminPortalProps) {
   const [settingsRegStatusMsg, setSettingsRegStatusMsg] = useState<string | null>(null);
   const [isLoadingRegStatus, setIsLoadingRegStatus] = useState(false);
 
+  // Attendance data loading state (shows spinner during fresh Supabase fetch)
+  const [isLoadingAttendance, setIsLoadingAttendance] = useState(false);
+
   // Load Data
-  const loadData = () => {
+  // NOTE: sessions and records are fetched DIRECTLY from Supabase to avoid
+  // showing stale counts from the localStorage cache (which may not yet have
+  // been updated by the async syncFromFirestore() that runs at startup).
+  // All other collections are low-frequency and can safely use the local cache.
+  const loadData = async () => {
     setMembers(store.getMembers());
-    setSessions(store.getSessions());
-    setRecords(store.getAttendanceRecords());
     setFolders(store.getFolders());
     setNotices(store.getNotices());
     setGallery(store.getGalleryItems());
     setCountdowns(store.getCountdowns());
     setPerformanceRequests(store.getPerformanceRequests());
+
+    // Fetch sessions and records fresh from Supabase so the "Members Present"
+    // count always reflects the actual persisted data, not a stale local cache.
+    setIsLoadingAttendance(true);
+    try {
+      const [freshSessions, freshRecords] = await Promise.all([
+        getAllSessionsFromSupabase(),
+        getAllRecordsFromSupabase(),
+      ]);
+      setSessions(freshSessions);
+      setRecords(freshRecords);
+      // Keep localStorage in sync with what we just fetched
+      if (freshSessions.length > 0) {
+        localStorage.setItem('vajranad_sessions', JSON.stringify(freshSessions));
+      }
+      if (freshRecords.length > 0) {
+        localStorage.setItem('vajranad_records', JSON.stringify(freshRecords));
+      }
+    } catch (err) {
+      console.warn('[ADMIN] Supabase fetch failed — falling back to local cache for sessions/records:', err);
+      setSessions(store.getSessions());
+      setRecords(store.getAttendanceRecords());
+    } finally {
+      setIsLoadingAttendance(false);
+    }
   };
 
   const handleDownloadExcel = () => {
@@ -914,6 +944,11 @@ export default function AdminPortal({ adminUser, onLogout }: AdminPortalProps) {
         setIsLoadingRegStatus(false);
         console.log('[ADMIN SETTINGS] Loaded registration status:', status ? 'OPEN' : 'CLOSED');
       });
+    }
+    if (activeTab === 'attendance') {
+      // Re-fetch sessions and records from Supabase every time the Attendance
+      // tab is opened so the "Members Present" count is always fresh.
+      loadData();
     }
   }, [activeTab]);
 
@@ -1942,7 +1977,9 @@ export default function AdminPortal({ adminUser, onLogout }: AdminPortalProps) {
                     </h3>
                     
                     <div className="space-y-3">
-                      {sessions.length === 0 ? (
+                      {isLoadingAttendance ? (
+                        <p className="text-xs text-neutral-400 italic text-center py-8 animate-pulse">Loading attendance data from Supabase…</p>
+                      ) : sessions.length === 0 ? (
                         <p className="text-xs text-neutral-400 italic text-center py-8">No attendance sessions registered.</p>
                       ) : (
                         sessions.map((s) => {
@@ -1977,7 +2014,11 @@ export default function AdminPortal({ adminUser, onLogout }: AdminPortalProps) {
 
                               <div className="flex items-center gap-3">
                                 <span className="text-xs font-bold text-neutral-600 bg-white border border-neutral-200/80 px-2.5 py-1.5 rounded-lg">
-                                  {count} Members Present
+                                  {isLoadingAttendance ? (
+                                    <span className="animate-pulse text-neutral-400">Loading…</span>
+                                  ) : (
+                                    <>{count} Members Present</>
+                                  )}
                                 </span>
                                 {s.type === 'Practice' && (
                                   <button
