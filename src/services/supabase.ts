@@ -255,6 +255,8 @@ export async function saveSessionToSupabase(s: AttendanceSession): Promise<{ suc
     id: s.id, type: s.type, title: s.title, date: s.date,
     day: s.day, is_active: s.isActive, created_by: s.createdBy,
     weight: s.weight ?? 1,
+    duplicate_of: s.duplicateOf ?? null,
+    duplicate_index: s.duplicateIndex ?? null,
   }, { onConflict: 'id' });
   if (error) {
     console.error('[SUPABASE SAVE ERROR] Session save failed:', error.message);
@@ -312,6 +314,8 @@ export async function getAllSessionsFromSupabase(): Promise<AttendanceSession[]>
     id: r.id, type: r.type, title: r.title, date: r.date,
     day: r.day, isActive: r.is_active, createdBy: r.created_by,
     weight: typeof r.weight === 'number' ? r.weight : 1,
+    duplicateOf: r.duplicate_of ?? undefined,
+    duplicateIndex: r.duplicate_index ?? undefined,
   }));
 
   console.log(`[SUPABASE READ] ✓ Sessions — fetched ${rows.length} / ${totalCount ?? '?'} total row(s) from Supabase.`);

@@ -872,6 +872,94 @@ class VajranadStore {
     deleteRecordsBySessionFromSupabase(id); // batch delete
   }
 
+  /**
+   * Duplicate Session — creates a snapshot copy of an existing session with all its
+   * attendance records, giving present members an extra attendance credit.
+   *
+   * Rules enforced here:
+   *  - The original session must have at least 1 attendance record (can't duplicate empty)
+   *  - At most 3 duplicates per original (4 total including the original)
+   *  - Duplicates are snapshots: changes to the original later do NOT propagate
+   *  - Records are cloned with new IDs so they are fully independent rows
+   */
+  public async duplicateSession(
+    originalId: string,
+    createdByAdmin: string
+  ): Promise<{ success: boolean; session?: AttendanceSession; error?: string }> {
+    const sessions = this.getSessions();
+    const records = this.getAttendanceRecords();
+
+    const original = sessions.find(s => s.id === originalId);
+    if (!original) return { success: false, error: 'Original session not found.' };
+
+    const originalRecords = records.filter(r => r.sessionId === originalId);
+    if (originalRecords.length === 0) {
+      return { success: false, error: 'Cannot duplicate a session with no attendance records. Scan at least one member first.' };
+    }
+
+    // Count existing duplicates of this original
+    const existingDuplicates = sessions.filter(
+      s => s.duplicateOf === originalId || (s.id === originalId && s.duplicateOf)
+    );
+    // Also count duplicates that point to THIS session (if it is itself a duplicate)
+    const rootId = original.duplicateOf ?? originalId;
+    const allRelated = sessions.filter(s => s.duplicateOf === rootId || s.id === rootId);
+    const duplicateCount = allRelated.filter(s => s.duplicateOf === rootId).length;
+
+    if (duplicateCount >= 3) {
+      return { success: false, error: 'Maximum of 3 duplicates per session (4 total) has been reached.' };
+    }
+
+    const nextIndex = duplicateCount + 1;
+    const weekdays = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+    const d = new Date(original.date);
+    const dayStr = weekdays[d.getDay()] || original.day;
+
+    const dupSession: AttendanceSession = {
+      id: 'sess_dup_' + Math.random().toString(36).substr(2, 9),
+      type: original.type as AttendanceSession['type'],
+      title: `${original.type === 'Practice' ? 'Practice Session' : 'Vadan Session'} - ${original.date} (${dayStr}) — Duplicate #${nextIndex}`,
+      date: original.date,
+      day: dayStr,
+      isActive: false,
+      createdBy: `[DUPLICATE by ${createdByAdmin}]`,
+      weight: original.weight ?? 1,
+      duplicateOf: rootId,
+      duplicateIndex: nextIndex,
+    };
+
+    // Commit session to local cache and Supabase
+    sessions.push(dupSession);
+    localStorage.setItem(this.sessionsKey, JSON.stringify(sessions));
+    const sessionRes = await saveSessionToSupabase(dupSession);
+    if (!sessionRes.success) {
+      return { success: false, error: `Failed to save duplicate session: ${sessionRes.error}` };
+    }
+
+    // Clone all attendance records of the ROOT session (or original if it is root)
+    const rootRecords = records.filter(r => r.sessionId === rootId);
+    const recordsToClone = rootRecords.length > 0 ? rootRecords : originalRecords;
+
+    const allRecords = this.getAttendanceRecords();
+    const now = new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true });
+
+    for (const rec of recordsToClone) {
+      const cloned: AttendanceRecord = {
+        ...rec,
+        id: 'rec_dup_' + Math.random().toString(36).substr(2, 9),
+        sessionId: dupSession.id,
+        scannedBy: `[DUPLICATE by ${createdByAdmin}] original scan by ${rec.scannedBy}`,
+        scanTime: now,
+      };
+      allRecords.push(cloned);
+      await saveRecordToSupabase(cloned);
+    }
+    localStorage.setItem(this.recordsKey, JSON.stringify(allRecords));
+
+    console.log(`[DUPLICATE SESSION] ✓ Created duplicate #${nextIndex} of "${original.title}": id=${dupSession.id}, cloned ${recordsToClone.length} record(s).`);
+    return { success: true, session: dupSession };
+  }
+
   public formatTo12Hour(timeStr: string): string {
     if (!timeStr) return '';
     // If it already has AM or PM (case-insensitive), return as-is
@@ -905,99 +993,86 @@ class VajranadStore {
     }));
   }
 
+  /**
+   * getMemberAttendanceStats — single shared source of truth for attendance percentages.
+   *
+   * Meeting/Maintenance sessions are deliberately excluded from all calculations.
+   * Historical Meeting records in Supabase are preserved but silently skipped here.
+   *
+   * Deduplication logic:
+   *  - For HELD count: each session row is counted once (including Duplicate sessions —
+   *    they are intentionally separate sessions that inflate the denominator)
+   *  - For ATTENDED count: a member's record is counted once per session id
+   *    (duplicates across sessions are fine because each has a unique session id)
+   */
   public getMemberAttendanceStats(memberId: string) {
     const records = this.getAttendanceRecords();
     const sessions = this.getSessions();
 
-    // De-duplicate sessions by (type, date) — same logic as before
-    const uniqueSessions = sessions.filter((s, index, self) =>
-      index === self.findIndex((t) => t.type === s.type && t.date === s.date)
-    );
+    // Only count Practice and Performance — exclude historical Meeting rows
+    const countedSessions = sessions.filter(s => s.type === 'Practice' || s.type === 'Performance');
 
-    // ── Weighted totals for each category (held) ──────────────────────────────
+    // ── Totals held per category ───────────────────────────────────────────────
     let practiceWeightHeld = 0;
     let performanceWeightHeld = 0;
-    let meetingWeightHeld = 0;
-
-    // Also track simple counts for backward-compat return values
     let practiceHeld = 0;
     let performanceHeld = 0;
-    let meetingHeld = 0;
 
-    for (const s of uniqueSessions) {
+    for (const s of countedSessions) {
       const w = typeof s.weight === 'number' && s.weight > 0 ? s.weight : 1;
-      console.log(`[STATS] Session ${s.id} | date=${s.date} | type=${s.type} | weight=${w}`);
       if (s.type === 'Practice')     { practiceWeightHeld     += w; practiceHeld++;     }
       else if (s.type === 'Performance') { performanceWeightHeld  += w; performanceHeld++;  }
-      else if (s.type === 'Meeting')  { meetingWeightHeld      += w; meetingHeld++;      }
     }
 
-    // ── Weighted totals for each category (attended by this member) ───────────
     let practiceWeightAttended = 0;
     let performanceWeightAttended = 0;
-    let meetingWeightAttended = 0;
-
-    // Simple counts (for return values)
     let practiceAttended = 0;
     let performanceAttended = 0;
-    let meetingAttended = 0;
 
-    const memberRecords = records.filter(r => r.memberId === memberId);
-    // Track which (type, date) combos have already been counted
-    const countedKeys = new Set<string>();
+    const memberRecords = records.filter(r =>
+      r.memberId === memberId &&
+      (r.type === 'Practice' || r.type === 'Performance')
+    );
+
+    // Deduplicate by sessionId so duplicate DB rows don't inflate counts
+    const seenSessionIds = new Set<string>();
 
     for (const r of memberRecords) {
-      const key = `${r.type}-${r.date}`;
-      if (countedKeys.has(key)) continue;
-      countedKeys.add(key);
+      if (seenSessionIds.has(r.sessionId)) continue;
+      seenSessionIds.add(r.sessionId);
 
-      // Find the matching session to get its weight
-      const matchedSession = uniqueSessions.find(s => s.type === r.type && s.date === r.date);
+      // Find the matching session for its weight
+      const matchedSession = countedSessions.find(s => s.id === r.sessionId);
       const w = matchedSession && typeof matchedSession.weight === 'number' && matchedSession.weight > 0
         ? matchedSession.weight
         : 1;
 
-      console.log(`[STATS] Member ${memberId} attended ${r.type} on ${r.date} | session weight=${w}`);
-
-      if (r.type === 'Practice')      { practiceWeightAttended     += w; practiceAttended++;     }
+      if (r.type === 'Practice')         { practiceWeightAttended     += w; practiceAttended++;     }
       else if (r.type === 'Performance') { performanceWeightAttended  += w; performanceAttended++;  }
-      else if (r.type === 'Meeting')   { meetingWeightAttended       += w; meetingAttended++;      }
     }
 
-    // ── Percentage calculations (weighted) ────────────────────────────────────
+    // ── Percentage calculations ────────────────────────────────────────────────
     const practicePct    = practiceWeightHeld    > 0 ? (practiceWeightAttended    / practiceWeightHeld)    * 100 : 100;
     const performancePct = performanceWeightHeld > 0 ? (performanceWeightAttended / performanceWeightHeld) * 100 : 100;
-    const meetingPct     = meetingWeightHeld     > 0 ? (meetingWeightAttended     / meetingWeightHeld)     * 100 : 100;
-
-    const totalWeightHeld     = practiceWeightHeld + performanceWeightHeld + meetingWeightHeld;
-    const totalWeightAttended = practiceWeightAttended + performanceWeightAttended + meetingWeightAttended;
-    const overallPct = totalWeightHeld > 0 ? (totalWeightAttended / totalWeightHeld) * 100 : 100;
 
     console.log(
-      `[STATS] Member ${memberId} summary |` +
-      ` practice=${practiceWeightAttended.toFixed(2)}/${practiceWeightHeld.toFixed(2)}` +
-      ` perf=${performanceWeightAttended.toFixed(2)}/${performanceWeightHeld.toFixed(2)}` +
-      ` meeting=${meetingWeightAttended.toFixed(2)}/${meetingWeightHeld.toFixed(2)}` +
-      ` overall=${overallPct.toFixed(2)}%`
+      `[STATS] Member ${memberId} |` +
+      ` practice=${practiceAttended}/${practiceHeld} (${practicePct.toFixed(1)}%)` +
+      ` perf=${performanceAttended}/${performanceHeld} (${performancePct.toFixed(1)}%)`
     );
 
     const shortages: string[] = [];
-    if (practiceHeld     > 0 && practicePct    < 50) shortages.push('Practice');
-    if (performanceHeld  > 0 && performancePct < 60) shortages.push('Performance');
-    if (meetingHeld      > 0 && meetingPct     < 75) shortages.push('Meeting');
+    if (practiceHeld    > 0 && practicePct    < 50) shortages.push('Practice');
+    if (performanceHeld > 0 && performancePct < 60) shortages.push('Performance');
 
     return {
       practicePct,
       performancePct,
-      meetingPct,
-      overallPct,
       shortages,
       practiceAttended,
       practiceHeld,
       performanceAttended,
       performanceHeld,
-      meetingAttended,
-      meetingHeld,
     };
   }
 
@@ -1025,9 +1100,9 @@ class VajranadStore {
 
     if (session.type === 'Performance') {
       const stats = this.getMemberAttendanceStats(member.id);
-      if (stats.overallPct < 50) {
-        console.warn(`[SCAN] ✗ ${member.name} blocked from Vadan session due to low attendance (${stats.overallPct.toFixed(2)}%)`);
-        return { success: false, error: 'Attendance below 50% — not eligible for Vadan session' };
+      if (stats.practicePct < 50) {
+        console.warn(`[SCAN] ✗ ${member.name} blocked from Vadan session due to low practice attendance (${stats.practicePct.toFixed(2)}%)`);
+        return { success: false, error: 'Practice attendance below 50% — not eligible for Vadan session' };
       }
     }
 
@@ -1143,8 +1218,8 @@ class VajranadStore {
     let eligibilityWarning: string | undefined;
     if (session.type === 'Performance' && !bypassEligibility) {
       const stats = this.getMemberAttendanceStats(member.id);
-      if (stats.overallPct < 50) {
-        eligibilityWarning = `${member.name} has ${stats.overallPct.toFixed(1)}% overall attendance (below 50% eligibility threshold).`;
+      if (stats.practicePct < 50) {
+        eligibilityWarning = `${member.name} has ${stats.practicePct.toFixed(1)}% practice attendance (below 50% eligibility threshold).`;
         console.warn(`[ADMIN OVERRIDE] ⚠ Eligibility warning for ${member.name}: ${eligibilityWarning}`);
         return { success: false, eligibilityWarning, member };
       }

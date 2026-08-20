@@ -118,6 +118,10 @@ export default function AdminPortal({ adminUser, onLogout }: AdminPortalProps) {
   const [newSessionData, setNewSessionData] = useState({ type: 'Practice' as AttendanceType, date: getLocalDateString(), weight: 1 });
   const [isCreatingSession, setIsCreatingSession] = useState(false);
 
+  // Duplicate Session
+  const [duplicatingSessionId, setDuplicatingSessionId] = useState<string | null>(null);
+  const [isDuplicating, setIsDuplicating] = useState(false);
+
   // Manual Attendance
   const [overrideSessionId, setOverrideSessionId] = useState<string>('');
   const [overrideMemberSearch, setOverrideMemberSearch] = useState<string>('');
@@ -395,7 +399,7 @@ export default function AdminPortal({ adminUser, onLogout }: AdminPortalProps) {
       const targetPercent = parseInt(minAttendanceFilter, 10);
       if (!isNaN(targetPercent)) {
         const stats = store.getMemberAttendanceStats(m.id);
-        matchesAttendance = stats.overallPct <= targetPercent;
+        matchesAttendance = stats.practicePct <= targetPercent;
       }
     }
 
@@ -408,21 +412,18 @@ export default function AdminPortal({ adminUser, onLogout }: AdminPortalProps) {
     return 0;
   });
 
-  // Calculate missed counts for a member
+  // Calculate missed counts for a member (Practice + Performance only)
   const getMissedCounts = (memberId: string) => {
     const practiceSessions = sessions.filter(s => s.type === 'Practice');
     const performanceSessions = sessions.filter(s => s.type === 'Performance');
-    const meetingSessions = sessions.filter(s => s.type === 'Meeting');
 
     const practicesMissed = practiceSessions.filter(s => !records.some(r => r.memberId === memberId && r.sessionId === s.id)).length;
     const performancesMissed = performanceSessions.filter(s => !records.some(r => r.memberId === memberId && r.sessionId === s.id)).length;
-    const meetingsMissed = meetingSessions.filter(s => !records.some(r => r.memberId === memberId && r.sessionId === s.id)).length;
 
     return {
       practices: practicesMissed,
       performances: performancesMissed,
-      meetings: meetingsMissed,
-      total: practicesMissed + performancesMissed + meetingsMissed
+      total: practicesMissed + performancesMissed
     };
   };
 
@@ -1353,16 +1354,10 @@ export default function AdminPortal({ adminUser, onLogout }: AdminPortalProps) {
                                           Attendance:
                                         </span>
                                         <span className={`border font-bold px-1.5 py-0.2 rounded ${stats.practicePct < 50 ? 'bg-red-50 text-red-700 border-red-200' : 'bg-green-50 text-green-700 border-green-200'}`}>
-                                          Pr: {stats.practiceAttended}/{stats.practiceHeld}
+                                          Pr: {stats.practiceAttended}/{stats.practiceHeld} ({stats.practicePct.toFixed(0)}%)
                                         </span>
                                         <span className={`border font-bold px-1.5 py-0.2 rounded ${stats.performancePct < 60 ? 'bg-red-50 text-red-700 border-red-200' : 'bg-green-50 text-green-700 border-green-200'}`}>
-                                          Perf: {stats.performanceAttended}/{stats.performanceHeld}
-                                        </span>
-                                        <span className={`border font-bold px-1.5 py-0.2 rounded ${stats.meetingPct < 75 ? 'bg-red-50 text-red-700 border-red-200' : 'bg-green-50 text-green-700 border-green-200'}`}>
-                                          Mt: {stats.meetingAttended}/{stats.meetingHeld}
-                                        </span>
-                                        <span className="text-neutral-800 bg-neutral-100 border border-neutral-200 px-1.5 py-0.2 rounded font-extrabold text-[9px]">
-                                          Overall: {stats.overallPct.toFixed(2)}%
+                                          Perf: {stats.performanceAttended}/{stats.performanceHeld} ({stats.performancePct.toFixed(0)}%)
                                         </span>
                                       </div>
                                       {stats.shortages.length > 0 && (
@@ -1535,25 +1530,19 @@ export default function AdminPortal({ adminUser, onLogout }: AdminPortalProps) {
                                       </span>
                                       <div className="flex items-center gap-1 flex-wrap text-[10px]">
                                         <span className={`border font-bold px-1.5 py-0.5 rounded ${stats.practicePct < 50 ? 'bg-red-50 text-red-700 border-red-200' : 'bg-white text-green-700 border-green-200'}`}>
-                                          Pr: {stats.practiceAttended}/{stats.practiceHeld}
+                                          Pr: {stats.practiceAttended}/{stats.practiceHeld} ({stats.practicePct.toFixed(0)}%)
                                         </span>
                                         <span className={`border font-bold px-1.5 py-0.5 rounded ${stats.performancePct < 60 ? 'bg-red-50 text-red-700 border-red-200' : 'bg-white text-green-700 border-green-200'}`}>
-                                          Perf: {stats.performanceAttended}/{stats.performanceHeld}
-                                        </span>
-                                        <span className={`border font-bold px-1.5 py-0.5 rounded ${stats.meetingPct < 75 ? 'bg-red-50 text-red-700 border-red-200' : 'bg-white text-green-700 border-green-200'}`}>
-                                          Mt: {stats.meetingAttended}/{stats.meetingHeld}
+                                          Perf: {stats.performanceAttended}/{stats.performanceHeld} ({stats.performancePct.toFixed(0)}%)
                                         </span>
                                       </div>
-                                      <div className="flex items-center justify-between mt-1 pt-1 border-t border-neutral-200/60 w-full">
-                                        <span className="text-neutral-800 font-extrabold text-[10px]">
-                                          Overall: {stats.overallPct.toFixed(2)}%
-                                        </span>
-                                        {stats.shortages.length > 0 && (
+                                      {stats.shortages.length > 0 && (
+                                        <div className="flex items-center justify-end mt-1 pt-1 border-t border-neutral-200/60 w-full">
                                           <span className="text-red-600 font-bold text-[9px] flex items-center gap-0.5 uppercase tracking-wide">
-                                            <ShieldAlert size={9} /> Shortage
+                                            <ShieldAlert size={9} /> Shortage: {stats.shortages.join(', ')}
                                           </span>
-                                        )}
-                                      </div>
+                                        </div>
+                                      )}
                                     </div>
                                   );
                                 })()}
@@ -1893,8 +1882,8 @@ export default function AdminPortal({ adminUser, onLogout }: AdminPortalProps) {
                                         }`}>
                                           {isPresent ? '✓ PRESENT' : 'ABSENT'}
                                         </span>
-                                        {stats.overallPct < 50 && selectedSession.type === 'Performance' && (
-                                          <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700">Low %</span>
+                                        {stats.practicePct < 50 && selectedSession.type === 'Performance' && (
+                                          <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700">Low Practice %</span>
                                         )}
                                       </div>
                                       <div className="text-[10px] text-neutral-400 mt-0.5 flex items-center gap-2 flex-wrap">
@@ -1988,7 +1977,12 @@ export default function AdminPortal({ adminUser, onLogout }: AdminPortalProps) {
                           const count = new Set(recsForSession.map(r => r.memberId)).size;
                           const appTodayDate = getLocalDateString();
                           const isActiveNow = s.isActive && s.date === appTodayDate;
-                          
+                          // Duplicate metadata
+                          const rootId = s.duplicateOf ?? s.id;
+                          const dupCount = sessions.filter(x => x.duplicateOf === rootId).length;
+                          const isDuplicate = !!s.duplicateOf;
+                          const canDuplicate = !isDuplicate && count > 0 && dupCount < 3;
+
                           // Logging for debugging the stale session issue
                           console.log(`[BADGE-CHECK] Session: "${s.title}" (${s.date}) | App Today: ${appTodayDate} | is marked active in db: ${s.isActive} | SHOW ACTIVE NOW BADGE: ${isActiveNow}`);
 
@@ -2000,7 +1994,7 @@ export default function AdminPortal({ adminUser, onLogout }: AdminPortalProps) {
                               <div>
                                 <div className="flex items-center gap-2">
                                   <span className={`text-[9px] font-black px-2 py-0.5 rounded-full uppercase tracking-wider ${
-                                    s.type === 'Practice' ? 'bg-[#6e0614] text-[#D4AF37]' : s.type === 'Performance' ? 'bg-amber-100 text-amber-800' : 'bg-blue-100 text-blue-800'
+                                    s.type === 'Practice' ? 'bg-[#6e0614] text-[#D4AF37]' : 'bg-amber-100 text-amber-800'
                                   }`}>
                                     {s.type}
                                   </span>
@@ -2009,12 +2003,22 @@ export default function AdminPortal({ adminUser, onLogout }: AdminPortalProps) {
                                       ACTIVE NOW
                                     </span>
                                   )}
+                                  {isDuplicate && (
+                                    <span className="bg-purple-100 text-purple-700 border border-purple-200 text-[9px] font-bold px-2 py-0.5 rounded-full">
+                                      Duplicate #{s.duplicateIndex}
+                                    </span>
+                                  )}
+                                  {!isDuplicate && dupCount > 0 && (
+                                    <span className="bg-blue-50 text-blue-700 border border-blue-200 text-[9px] font-bold px-2 py-0.5 rounded-full">
+                                      +{dupCount} duplicate{dupCount > 1 ? 's' : ''}
+                                    </span>
+                                  )}
                                 </div>
                                 <h4 className="font-bold text-neutral-800 text-sm mt-1.5">{s.title}</h4>
                                 <p className="text-[10px] text-neutral-400 mt-0.5">{s.date} ({s.day}) • Created by: {s.createdBy}</p>
                               </div>
 
-                              <div className="flex items-center gap-3">
+                              <div className="flex items-center gap-3 flex-wrap">
                                 <span className="text-xs font-bold text-neutral-600 bg-white border border-neutral-200/80 px-2.5 py-1.5 rounded-lg">
                                   {isLoadingAttendance ? (
                                     <span className="animate-pulse text-neutral-400">Loading…</span>
@@ -2036,6 +2040,15 @@ export default function AdminPortal({ adminUser, onLogout }: AdminPortalProps) {
                                 >
                                   Generate Report
                                 </button>
+                                {canDuplicate && (
+                                  <button
+                                    onClick={() => setDuplicatingSessionId(s.id)}
+                                    className="bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 text-xs font-bold py-1.5 px-3 rounded-lg transition-all cursor-pointer shadow-sm flex items-center gap-1"
+                                    title="Duplicate this session (gives present members extra attendance credit)"
+                                  >
+                                    &#10021; Duplicate Session
+                                  </button>
+                                )}
                                 <button
                                   onClick={() => {
                                     setConfirmDialog({
@@ -3599,7 +3612,7 @@ ON CONFLICT (key) DO NOTHING;`}</pre>
                       Total Missed: {getMissedCounts(viewingMemberDetails.id).total}
                     </span>
                   </h5>
-                  <div className="grid grid-cols-3 gap-3 text-center text-xs">
+                  <div className="grid grid-cols-2 gap-3 text-center text-xs">
                     <div className="bg-white border border-red-100 p-3 rounded-xl shadow-2xs">
                       <span className="text-[9px] text-neutral-400 font-bold uppercase block mb-1">Practices Missed</span>
                       <strong className="text-red-600 text-lg font-serif">{getMissedCounts(viewingMemberDetails.id).practices}</strong>
@@ -3607,10 +3620,6 @@ ON CONFLICT (key) DO NOTHING;`}</pre>
                     <div className="bg-white border border-red-100 p-3 rounded-xl shadow-2xs">
                       <span className="text-[9px] text-neutral-400 font-bold uppercase block mb-1">Performances Missed</span>
                       <strong className="text-red-600 text-lg font-serif">{getMissedCounts(viewingMemberDetails.id).performances}</strong>
-                    </div>
-                    <div className="bg-white border border-red-100 p-3 rounded-xl shadow-2xs">
-                      <span className="text-[9px] text-neutral-400 font-bold uppercase block mb-1">Meetings Missed</span>
-                      <strong className="text-red-600 text-lg font-serif">{getMissedCounts(viewingMemberDetails.id).meetings}</strong>
                     </div>
                   </div>
                 </div>
@@ -3863,7 +3872,7 @@ ON CONFLICT (key) DO NOTHING;`}</pre>
               <div>
                 <label className="text-[10px] font-bold text-neutral-500 uppercase tracking-wider block mb-2">Session Type</label>
                 <div className="flex gap-2">
-                  {['Practice', 'Performance', 'Meeting'].map((type) => (
+                  {['Practice', 'Performance'].map((type) => (
                     <button
                       key={type}
                       type="button"
@@ -4055,6 +4064,66 @@ ON CONFLICT (key) DO NOTHING;`}</pre>
           </div>
         </div>
       )}
+
+      {/* Duplicate Session Confirmation Modal */}
+      {duplicatingSessionId && (() => {
+        const origSession = sessions.find(s => s.id === duplicatingSessionId);
+        if (!origSession) return null;
+        const presentCount = new Set(records.filter(r => r.sessionId === duplicatingSessionId).map(r => r.memberId)).size;
+        return (
+          <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-[9999] animate-in fade-in duration-200">
+            <div className="bg-white border-4 border-double border-blue-200 rounded-[24px] max-w-md w-full shadow-2xl p-6 text-center space-y-4 animate-in fade-in zoom-in-95 duration-200">
+              <div className="w-12 h-12 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center mx-auto">
+                <span className="text-2xl">&#10021;</span>
+              </div>
+              <h4 className="font-extrabold text-blue-800 font-serif text-lg tracking-tight">Duplicate Session?</h4>
+              <div className="bg-blue-50 border border-blue-200 rounded-xl p-3 text-left space-y-1">
+                <p className="text-xs text-neutral-700 font-semibold leading-relaxed">
+                  This will create an <strong>additional {origSession.type} session record</strong> for <strong>{origSession.date}</strong> with the same <strong>{presentCount} present member{presentCount !== 1 ? 's' : ''}</strong> as a snapshot.
+                </p>
+                <p className="text-xs text-neutral-500 leading-relaxed">
+                  • Total session count goes up by 1 → present members get +1 credit automatically<br/>
+                  • Percentage = (present ÷ total sessions) × 100 recalculates across all views<br/>
+                  • Changes to the original later will <strong>not</strong> update this duplicate<br/>
+                  • You can delete this duplicate at any time to reverse the change
+                </p>
+              </div>
+              <div className="flex gap-3 pt-1">
+                <button
+                  type="button"
+                  onClick={() => setDuplicatingSessionId(null)}
+                  disabled={isDuplicating}
+                  className="flex-1 bg-white border border-neutral-300 hover:bg-neutral-50 text-neutral-700 font-bold py-2.5 px-4 rounded-xl text-xs uppercase tracking-wider transition-all cursor-pointer disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  disabled={isDuplicating}
+                  onClick={async () => {
+                    setIsDuplicating(true);
+                    const res = await store.duplicateSession(duplicatingSessionId, adminUser.name);
+                    setIsDuplicating(false);
+                    if (res.success) {
+                      setDuplicatingSessionId(null);
+                      await loadData();
+                    } else {
+                      alert(`Duplication failed: ${res.error}`);
+                    }
+                  }}
+                  className="flex-1 bg-blue-700 hover:bg-blue-800 text-white border border-blue-300 font-bold py-2.5 px-4 rounded-xl text-xs uppercase tracking-wider transition-all cursor-pointer disabled:opacity-50 flex items-center justify-center gap-2"
+                >
+                  {isDuplicating ? (
+                    <><RefreshCw size={12} className="animate-spin" /> Creating…</>
+                  ) : (
+                    'Yes, Duplicate'
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Practice Attendance Viewer Modal */}
       {viewingPracticeSessionRecords && (

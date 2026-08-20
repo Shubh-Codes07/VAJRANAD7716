@@ -542,22 +542,8 @@ export default function QRScannerComp({ currentUser, onScanComplete }: QRScanner
                     </div>
                     <span className="text-xs font-bold text-[#800000] bg-[#FFFDD0] px-3 py-1 rounded-full border border-[#D4AF37]/20 uppercase">Select</span>
                   </button>
- 
-                  {/* Option 3: Maintenance/Meeting Scanning */}
-                  <button
-                    onClick={() => handleQuickStartSession('Meeting')}
-                    className="w-full bg-white hover:bg-[#FFFDD0]/30 border border-neutral-200 hover:border-[#D4AF37] text-left p-4 rounded-2xl shadow-xs transition-all cursor-pointer group flex items-center justify-between"
-                  >
-                    <div className="flex items-center gap-3">
-                      <span className="text-2xl font-serif">🤝</span>
-                      <div>
-                        <h4 className="font-extrabold text-[#800000] text-sm group-hover:underline">Maintenance / Meeting Scanning</h4>
-                        <p className="text-[10px] text-neutral-400 font-medium">Log/resume today's single Meeting session report</p>
-                      </div>
-                    </div>
-                    <span className="text-xs font-bold text-[#800000] bg-[#FFFDD0] px-3 py-1 rounded-full border border-[#D4AF37]/20 uppercase">Select</span>
-                  </button>
                 </div>
+
 
 
                 <button

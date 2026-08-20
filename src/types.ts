@@ -4,7 +4,9 @@ export type Gender = 'Male' | 'Female';
 
 export type BloodGroup = 'A+' | 'A-' | 'B+' | 'B-' | 'AB+' | 'AB-' | 'O+' | 'O-';
 
-export type AttendanceType = 'Practice' | 'Performance' | 'Meeting';
+export type AttendanceType = 'Practice' | 'Performance';
+// Note: 'Meeting' type still exists in historical Supabase records but is excluded from all new
+// UI calculations and data entry. Do NOT delete historical Meeting records from the database.
 
 export interface Member {
   id: string;
@@ -47,6 +49,10 @@ export interface AttendanceSession {
    *  e.g. set to 2 for a session that counts double, 0.5 for half-credit.
    *  Legacy sessions without this field are treated as weight 1. */
   weight?: number;
+  /** If this session is a duplicate of another, stores the original session's id. */
+  duplicateOf?: string;
+  /** 1-based index of this duplicate (1, 2, or 3). Unset on original sessions. */
+  duplicateIndex?: number;
 }
 
 export interface AttendanceRecord {

@@ -197,25 +197,22 @@ export default function MemberHome({ currentUser, onLogout, onUpdateUser }: Memb
 
   // Compute stats using the shared logic (same as Admin Portal)
   const stats = store.getMemberAttendanceStats(currentUser.id);
-  
-  const totalHeld = stats.practiceHeld + stats.performanceHeld + stats.meetingHeld;
-  const totalAttended = stats.practiceAttended + stats.performanceAttended + stats.meetingAttended;
-  const attendancePercentage = Math.round(stats.overallPct);
 
-  // Missing counts
+  // Practice + Performance only (Meeting excluded from all UI and calculations)
+  const totalHeld = stats.practiceHeld + stats.performanceHeld;
+  const totalAttended = stats.practiceAttended + stats.performanceAttended;
+
+  // Missed counts
   const practicesMissed = stats.practiceHeld - stats.practiceAttended;
   const performancesMissed = stats.performanceHeld - stats.performanceAttended;
-  const meetingsMissed = stats.meetingHeld - stats.meetingAttended;
-  const totalMissed = practicesMissed + performancesMissed + meetingsMissed;
+  const totalMissed = practicesMissed + performancesMissed;
 
-  // De-duplicate sessions by (type, date) for the calendar, exactly as stats does
-  const uniqueSessions = sessions.filter((s, index, self) =>
-    index === self.findIndex((t) => t.type === s.type && t.date === s.date)
-  );
+  // Calendar: only show Practice and Performance sessions
+  const calendarSessions = sessions.filter(s => s.type === 'Practice' || s.type === 'Performance');
 
-  // For Last Attendance and Calendar lookups
+  // For Last Attendance card lookups (deduplicated by sessionId)
   const rawRecords = records.filter(r => r.memberId === currentUser.id);
-  const myRecords = rawRecords.filter((r, index, self) => 
+  const myRecords = rawRecords.filter((r, index, self) =>
     index === self.findIndex(t => t.sessionId === r.sessionId)
   );
 
@@ -230,7 +227,7 @@ export default function MemberHome({ currentUser, onLogout, onUpdateUser }: Memb
           Total Missed: <strong className="text-red-600 font-serif text-xs">{totalMissed}</strong>
         </span>
       </div>
-      <div className="grid grid-cols-3 gap-2 text-center text-[10px] font-black">
+      <div className="grid grid-cols-2 gap-2 text-center text-[10px] font-black">
         <div className="bg-white border border-[#D4AF37]/20 p-2 rounded-xl shadow-2xs">
           <span className="text-[8px] text-neutral-400 block uppercase font-bold leading-tight">Practices</span>
           <span className="text-red-600 font-serif font-black text-xs">{practicesMissed} Missed</span>
@@ -238,10 +235,6 @@ export default function MemberHome({ currentUser, onLogout, onUpdateUser }: Memb
         <div className="bg-white border border-[#D4AF37]/20 p-2 rounded-xl shadow-2xs">
           <span className="text-[8px] text-neutral-400 block uppercase font-bold leading-tight">Performances</span>
           <span className="text-red-600 font-serif font-black text-xs">{performancesMissed} Missed</span>
-        </div>
-        <div className="bg-white border border-[#D4AF37]/20 p-2 rounded-xl shadow-2xs">
-          <span className="text-[8px] text-neutral-400 block uppercase font-bold leading-tight">Meetings</span>
-          <span className="text-red-600 font-serif font-black text-xs">{meetingsMissed} Missed</span>
         </div>
       </div>
     </div>
@@ -868,31 +861,29 @@ export default function MemberHome({ currentUser, onLogout, onUpdateUser }: Memb
             {activeTab === 'history' && (
               <div className="space-y-6">
                 
-                {/* Stats Dashboard Grid */}
+                {/* Stats Dashboard Grid — two separate % cards */}
                 <div className="grid grid-cols-2 gap-4">
                   <div className="bg-white border border-[#D4AF37]/20 p-4 rounded-2xl shadow-sm text-center">
-                    <span className="text-[10px] text-neutral-400 font-bold uppercase tracking-wider block">Attendance Rate</span>
-                    <span className="text-2xl font-black text-[#800000]">{attendancePercentage}%</span>
+                    <span className="text-[10px] text-neutral-400 font-bold uppercase tracking-wider block">Practice %</span>
+                    <span className="text-2xl font-black text-[#800000]">{Math.round(stats.practicePct)}%</span>
+                    <span className="text-[9px] text-neutral-400 block mt-0.5">{stats.practiceAttended} / {stats.practiceHeld} sessions</span>
                   </div>
                   <div className="bg-white border border-[#D4AF37]/20 p-4 rounded-2xl shadow-sm text-center">
-                    <span className="text-[10px] text-neutral-400 font-bold uppercase tracking-wider block">Total Attendance</span>
-                    <span className="text-2xl font-black text-neutral-800">{totalAttended} / {totalHeld}</span>
+                    <span className="text-[10px] text-neutral-400 font-bold uppercase tracking-wider block">Performance %</span>
+                    <span className="text-2xl font-black text-amber-700">{Math.round(stats.performancePct)}%</span>
+                    <span className="text-[9px] text-neutral-400 block mt-0.5">{stats.performanceAttended} / {stats.performanceHeld} sessions</span>
                   </div>
                 </div>
 
-                {/* Subcounts */}
-                <div className="bg-white border border-[#D4AF37]/20 rounded-2xl p-4 grid grid-cols-3 gap-2 text-center text-xs font-bold">
+                {/* Subcounts — Practice and Performance only */}
+                <div className="bg-white border border-[#D4AF37]/20 rounded-2xl p-4 grid grid-cols-2 gap-2 text-center text-xs font-bold">
                   <div>
                     <span className="text-[9px] text-neutral-400 block uppercase">Practice</span>
                     <span className="text-neutral-800">{stats.practiceAttended} Present</span>
                   </div>
-                  <div className="border-x border-neutral-100">
+                  <div>
                     <span className="text-[9px] text-neutral-400 block uppercase">Performance</span>
                     <span className="text-neutral-800">{stats.performanceAttended} Present</span>
-                  </div>
-                  <div>
-                    <span className="text-[9px] text-neutral-400 block uppercase">Meeting</span>
-                    <span className="text-neutral-800">{stats.meetingAttended} Present</span>
                   </div>
                 </div>
 
@@ -904,10 +895,10 @@ export default function MemberHome({ currentUser, onLogout, onUpdateUser }: Memb
                     Attendance Calendar
                   </h4>
                   <div className="flex flex-wrap gap-2.5">
-                    {uniqueSessions.length === 0 ? (
+                    {calendarSessions.length === 0 ? (
                       <p className="text-xs text-neutral-400 italic">No scheduled sessions to log.</p>
                     ) : (
-                      uniqueSessions.map((s) => {
+                      calendarSessions.map((s) => {
                         const isPresent = myRecords.some(r => r.sessionId === s.id);
                         return (
                           <div
