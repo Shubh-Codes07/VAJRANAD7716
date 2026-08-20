@@ -208,9 +208,10 @@ export default function MemberHome({ currentUser, onLogout, onUpdateUser }: Memb
   const meetingsMissed = stats.meetingHeld - stats.meetingAttended;
   const totalMissed = practicesMissed + performancesMissed + meetingsMissed;
 
-  // Sessions are now deduplicated implicitly because they have unique IDs,
-  // including duplicate sessions which serve to award extra credit.
-  const uniqueSessions = sessions;
+  // De-duplicate sessions by (type, date) for the calendar, exactly as stats does
+  const uniqueSessions = sessions.filter((s, index, self) =>
+    index === self.findIndex((t) => t.type === s.type && t.date === s.date)
+  );
 
   // For Last Attendance and Calendar lookups
   const rawRecords = records.filter(r => r.memberId === currentUser.id);

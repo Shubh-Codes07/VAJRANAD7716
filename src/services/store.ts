@@ -94,81 +94,11 @@ class VajranadStore {
     deleteRecordFromSupabase(id);
   }
 
-  public async saveSession(session: AttendanceSession): Promise<boolean> {
-    const { success } = await saveSessionToSupabase(session);
-    if (success) {
-      const sessions = this.getSessions();
-      const existingIdx = sessions.findIndex(s => s.id === session.id);
-      if (existingIdx !== -1) {
-        sessions[existingIdx] = session;
-      } else {
-        sessions.push(session);
-      }
-      localStorage.setItem(this.sessionsKey, JSON.stringify(sessions));
-      return true;
+  private async saveSessionToFirestore(s: AttendanceSession) {
+    const res = await saveSessionToSupabase(s);
+    if (!res.success) {
+      console.error(`[STORE] Session save failed for ${s.id}. Subsequent records for this session will fail to save in Supabase due to foreign key constraints!`);
     }
-    return false;
-  }
-
-  /**
-   * Duplicates an existing session and all its records for extra attendance credit.
-   */
-  public async duplicateSession(sessionId: string, adminName: string): Promise<{ success: boolean; error?: string }> {
-    const sessions = this.getSessions();
-    const records = this.getAttendanceRecords();
-
-    const originalSession = sessions.find(s => s.id === sessionId);
-    if (!originalSession) return { success: false, error: 'Original session not found' };
-
-    // Prevent duplicating a duplicate
-    if (originalSession.id.includes('_dup_')) {
-      return { success: false, error: 'Cannot duplicate a session that is already a duplicate' };
-    }
-
-    // Count existing duplicates
-    const duplicatePrefix = `${sessionId}_dup_`;
-    const existingDuplicates = sessions.filter(s => s.id.startsWith(duplicatePrefix));
-    
-    if (existingDuplicates.length >= 3) {
-      return { success: false, error: 'Maximum of 3 duplicates per session reached' };
-    }
-
-    const nextIndex = existingDuplicates.length + 1;
-    const newSessionId = `${sessionId}_dup_${nextIndex}`;
-    
-    // Create new session
-    const newSession: AttendanceSession = {
-      ...originalSession,
-      id: newSessionId,
-      title: `${originalSession.title} (Duplicate #${nextIndex})`,
-      createdBy: `${adminName} (Duplicated)`,
-      isActive: false // Never active for scanning
-    };
-
-    const sessionSaved = await this.saveSession(newSession);
-    if (!sessionSaved) return { success: false, error: 'Failed to save duplicate session to database' };
-
-    // Find and duplicate records
-    const originalRecords = records.filter(r => r.sessionId === sessionId);
-    
-    for (const r of originalRecords) {
-      const newRecord: AttendanceRecord = {
-        ...r,
-        id: 'rec_' + Math.random().toString(36).substr(2, 9),
-        sessionId: newSessionId,
-        scannedBy: `${adminName} (Duplicate Auto-Generated)`
-      };
-      
-      const { success } = await saveRecordToSupabase(newRecord);
-      if (success) {
-        records.push(newRecord);
-      }
-    }
-
-    // Save records to cache
-    localStorage.setItem(this.recordsKey, JSON.stringify(records));
-    
-    return { success: true };
   }
 
   private async saveRecordToFirestore(r: AttendanceRecord) {
@@ -740,7 +670,7 @@ class VajranadStore {
       // The session's date is in the past — safe to deactivate
       console.log(`[SESSION] Auto-deactivating past session "${active.title}" (${active.date} < today ${todayDateStr}). Persisting to Supabase.`);
       active.isActive = false;
-      this.saveSession(active);
+      this.saveSessionToFirestore(active);
       localStorage.setItem(this.sessionsKey, JSON.stringify(sessions));
       return null;
     }
@@ -782,7 +712,7 @@ class VajranadStore {
       localStorage.setItem(this.sessionsKey, JSON.stringify(sessions));
 
       // Persist active flag to Supabase
-      this.saveSession(remoteExisting);
+      this.saveSessionToFirestore(remoteExisting);
       return remoteExisting;
     }
 
@@ -795,7 +725,7 @@ class VajranadStore {
       sessions.forEach(s => { s.isActive = s.id === localExisting.id; });
       localExisting.isActive = true;
       localStorage.setItem(this.sessionsKey, JSON.stringify(sessions));
-      this.saveSession(localExisting); // push up to Supabase so others can see it
+      this.saveSessionToFirestore(localExisting); // push up to Supabase so others can see it
       return localExisting;
     }
 
@@ -806,7 +736,7 @@ class VajranadStore {
     sessions.forEach(s => {
       if (s.isActive) {
         s.isActive = false;
-        this.saveSession(s);
+        this.saveSessionToFirestore(s);
       }
     });
 
@@ -823,7 +753,7 @@ class VajranadStore {
 
     sessions.push(newSession);
     localStorage.setItem(this.sessionsKey, JSON.stringify(sessions));
-    await this.saveSession(newSession);
+    await this.saveSessionToFirestore(newSession);
 
     console.log(`[SESSION] ✓ Created new ${type} session: id=${newSession.id}, weight=${weight}`);
     return newSession;
@@ -879,7 +809,7 @@ class VajranadStore {
     sessions.forEach(s => {
       if (s.isActive) {
         s.isActive = false;
-        this.saveSession(s);
+        this.saveSessionToFirestore(s);
       }
     });
 
@@ -893,7 +823,7 @@ class VajranadStore {
     if (existingSession) {
       console.log(`[SESSION] ✓ Joined existing local ${type} session: ${existingSession.id}`);
       existingSession.isActive = true;
-      this.saveSession(existingSession);
+      this.saveSessionToFirestore(existingSession);
       localStorage.setItem(this.sessionsKey, JSON.stringify(sessions));
       return existingSession;
     }
@@ -911,7 +841,7 @@ class VajranadStore {
 
     sessions.push(newSession);
     localStorage.setItem(this.sessionsKey, JSON.stringify(sessions));
-    this.saveSession(newSession);
+    this.saveSessionToFirestore(newSession);
     console.log(`[SESSION] ✓ Created new ${type} session: ${newSession.id}, weight=${weight}`);
     return newSession;
   }
@@ -921,7 +851,7 @@ class VajranadStore {
     sessions.forEach(s => {
       if (s.isActive) {
         s.isActive = false;
-        this.saveSession(s);
+        this.saveSessionToFirestore(s);
       }
     });
     localStorage.setItem(this.sessionsKey, JSON.stringify(sessions));
@@ -979,9 +909,10 @@ class VajranadStore {
     const records = this.getAttendanceRecords();
     const sessions = this.getSessions();
 
-    // Sessions are now deduplicated implicitly because they have unique IDs,
-    // including duplicate sessions which serve to award extra credit.
-    const uniqueSessions = sessions;
+    // De-duplicate sessions by (type, date) — same logic as before
+    const uniqueSessions = sessions.filter((s, index, self) =>
+      index === self.findIndex((t) => t.type === s.type && t.date === s.date)
+    );
 
     // ── Weighted totals for each category (held) ──────────────────────────────
     let practiceWeightHeld = 0;
@@ -1012,7 +943,13 @@ class VajranadStore {
     let meetingAttended = 0;
 
     const memberRecords = records.filter(r => r.memberId === memberId);
+    // Track which (type, date) combos have already been counted
+    const countedKeys = new Set<string>();
+
     for (const r of memberRecords) {
+      const key = `${r.type}-${r.date}`;
+      if (countedKeys.has(key)) continue;
+      countedKeys.add(key);
 
       // Find the matching session to get its weight
       const matchedSession = uniqueSessions.find(s => s.type === r.type && s.date === r.date);

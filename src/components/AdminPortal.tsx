@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { motion } from 'motion/react';
-import { Users, Calendar, Megaphone, Image as ImageIcon, BarChart2, ShieldAlert, Search, Edit2, CheckCircle, Trash2, Shield, Settings, Database, Upload, Download, RefreshCw, Star, UserCheck, AlertTriangle, X, Phone, MapPin, Heart, Award, Sparkles, Lock, Grid, List, ClipboardEdit, UserPlus, UserMinus, ChevronDown, Copy } from 'lucide-react';
+import { Users, Calendar, Megaphone, Image as ImageIcon, BarChart2, ShieldAlert, Search, Edit2, CheckCircle, Trash2, Shield, Settings, Database, Upload, Download, RefreshCw, Star, UserCheck, AlertTriangle, X, Phone, MapPin, Heart, Award, Sparkles, Lock, Grid, List, ClipboardEdit, UserPlus, UserMinus, ChevronDown } from 'lucide-react';
 import { QRCodeCanvas } from 'qrcode.react';
 import html2canvasSafe from '../services/html2canvasSafe';
 import jsPDF from 'jspdf';
@@ -1989,8 +1989,8 @@ export default function AdminPortal({ adminUser, onLogout }: AdminPortalProps) {
                           const appTodayDate = getLocalDateString();
                           const isActiveNow = s.isActive && s.date === appTodayDate;
                           
-                          const isDuplicate = s.id.includes('_dup_');
-                          const duplicateCount = sessions.filter(x => x.id.startsWith(s.id + '_dup_')).length;
+                          // Logging for debugging the stale session issue
+                          console.log(`[BADGE-CHECK] Session: "${s.title}" (${s.date}) | App Today: ${appTodayDate} | is marked active in db: ${s.isActive} | SHOW ACTIVE NOW BADGE: ${isActiveNow}`);
 
                           return (
                             <div
@@ -2007,11 +2007,6 @@ export default function AdminPortal({ adminUser, onLogout }: AdminPortalProps) {
                                   {isActiveNow && (
                                     <span className="bg-green-600 text-white text-[9px] font-bold px-2 py-0.5 rounded-full animate-pulse">
                                       ACTIVE NOW
-                                    </span>
-                                  )}
-                                  {duplicateCount > 0 && (
-                                    <span className="bg-purple-100 text-purple-800 text-[9px] font-bold px-2 py-0.5 rounded-full">
-                                      Duplicated: x{duplicateCount}
                                     </span>
                                   )}
                                 </div>
@@ -2041,40 +2036,12 @@ export default function AdminPortal({ adminUser, onLogout }: AdminPortalProps) {
                                 >
                                   Generate Report
                                 </button>
-                                
-                                {!isDuplicate && count > 0 && (
-                                  <button
-                                    onClick={() => {
-                                      setConfirmDialog({
-                                        isOpen: true,
-                                        title: 'Duplicate Session',
-                                        message: `This will create an additional session record for ${s.date} with the same present members. This counts as an extra session toward the total, and present members will get an extra attendance credit.\n\nContinue?`,
-                                        onConfirm: async () => {
-                                          setConfirmDialog(null);
-                                          const res = await store.duplicateSession(s.id, currentUser.name);
-                                          if (res.success) {
-                                            loadData();
-                                          } else {
-                                            alert(res.error || 'Failed to duplicate session');
-                                          }
-                                        }
-                                      });
-                                    }}
-                                    className="bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200/50 text-xs font-bold py-1.5 px-3 rounded-lg transition-all cursor-pointer shadow-sm flex items-center gap-1"
-                                  >
-                                    <Copy size={14} />
-                                    Duplicate Session
-                                  </button>
-                                )}
-
                                 <button
                                   onClick={() => {
                                     setConfirmDialog({
                                       isOpen: true,
                                       title: 'Delete Attendance Session',
-                                      message: duplicateCount > 0 
-                                        ? `⚠️ WARNING: This session has ${duplicateCount} duplicate(s). Deleting this original session will NOT delete the duplicates automatically. Delete anyway?`
-                                        : `⚠️ CRITICAL WARNING: Are you sure you want to permanently delete the attendance session "${s.title}" on ${s.date}? This action is irreversible and will delete all associated attendance scans.`,
+                                      message: `⚠️ CRITICAL WARNING: Are you sure you want to permanently delete the attendance session "${s.title}" on ${s.date}? This action is irreversible and will delete all associated attendance scans.`,
                                       onConfirm: () => {
                                         store.deleteSession(s.id);
                                         setConfirmDialog(null);
