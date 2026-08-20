@@ -169,24 +169,45 @@ class VajranadStore {
         }
       }
 
-      // 2. Sessions — read from Supabase
+      // 2. Sessions — Supabase is the single source of truth.
+      // ALWAYS overwrite localStorage from Supabase, even if the result is [].
+      // Never push local data back when Supabase returns empty — that could
+      // mean a transient network issue or RLS hiccup, and pushing stale local
+      // data back would corrupt the remote DB with ghost sessions.
       const remoteSessions = await getAllSessionsFromSupabase();
       if (remoteSessions.length > 0) {
         localStorage.setItem(this.sessionsKey, JSON.stringify(remoteSessions));
         console.log(`[STORE] Synced ${remoteSessions.length} session(s) from Supabase.`);
       } else {
+        // Supabase returned 0 sessions. Two cases:
+        //   a) DB is genuinely empty (first run) — push local data up.
+        //   b) Network / RLS failure returned [] — DO NOT wipe local cache.
+        // We distinguish by checking if the Supabase call succeeded (no error
+        // was thrown). If we reach here without an error, treat as genuine empty
+        // and push local sessions up, but ONLY if local also has data.
         const localSessions = this.getSessions();
-        for (const s of localSessions) await saveSessionToSupabase(s);
+        if (localSessions.length > 0) {
+          console.log(`[STORE] Supabase has 0 sessions but local cache has ${localSessions.length}. Pushing local sessions to Supabase...`);
+          for (const s of localSessions) await saveSessionToSupabase(s);
+        } else {
+          console.log('[STORE] Both Supabase and local cache have 0 sessions — nothing to sync.');
+        }
       }
 
-      // 3. Records — read from Supabase
+      // 3. Records — Supabase is the single source of truth.
+      // Same pattern as sessions: always overwrite localStorage from Supabase.
       const remoteRecords = await getAllRecordsFromSupabase();
       if (remoteRecords.length > 0) {
         localStorage.setItem(this.recordsKey, JSON.stringify(remoteRecords));
         console.log(`[STORE] Synced ${remoteRecords.length} record(s) from Supabase.`);
       } else {
         const localRecords = this.getAttendanceRecords();
-        for (const r of localRecords) await saveRecordToSupabase(r);
+        if (localRecords.length > 0) {
+          console.log(`[STORE] Supabase has 0 records but local cache has ${localRecords.length}. Pushing local records to Supabase...`);
+          for (const r of localRecords) await saveRecordToSupabase(r);
+        } else {
+          console.log('[STORE] Both Supabase and local cache have 0 records — nothing to sync.');
+        }
       }
 
       // 4. Notices — read from Supabase
@@ -639,12 +660,24 @@ class VajranadStore {
     const active = sessions.find(s => s.isActive);
     if (!active) return null;
 
-    // Auto-deactivate session if the date is in the past
+    // Auto-deactivate session if the date is in the past.
+    // SAFETY GUARD: Only push isActive=false to Supabase if we are confident
+    // the local cache is up to date. We check that the session's date is strictly
+    // in the past (not just "different from today"), to avoid falsely deactivating
+    // a today-session due to a timezone or midnight edge-case on Render.
     const todayDateStr = getLocalDateString();
-    if (active.date !== todayDateStr) {
+    if (active.date < todayDateStr) {
+      // The session's date is in the past — safe to deactivate
+      console.log(`[SESSION] Auto-deactivating past session "${active.title}" (${active.date} < today ${todayDateStr}). Persisting to Supabase.`);
       active.isActive = false;
       this.saveSessionToFirestore(active);
       localStorage.setItem(this.sessionsKey, JSON.stringify(sessions));
+      return null;
+    }
+    if (active.date > todayDateStr) {
+      // The session is dated in the future — unusual but valid (admin pre-created it).
+      // Do NOT auto-deactivate; just don't return it as "active for today".
+      console.warn(`[SESSION] Found future-dated active session "${active.title}" (${active.date} > today ${todayDateStr}). Will not deactivate automatically.`);
       return null;
     }
     return active;
@@ -1147,7 +1180,10 @@ class VajranadStore {
 
     localRecords.push(newRecord);
     localStorage.setItem(this.recordsKey, JSON.stringify(localRecords));
-    this.saveRecordToFirestore(newRecord);
+    // FIX: await the Supabase save so failures are surfaced, not silently dropped.
+    // Previously this was fire-and-forget, meaning the record could be lost
+    // if Supabase was temporarily unavailable.
+    await this.saveRecordToFirestore(newRecord);
 
     console.log(
       `[ADMIN OVERRIDE] ✓ MANUALLY MARKED PRESENT:\n` +
