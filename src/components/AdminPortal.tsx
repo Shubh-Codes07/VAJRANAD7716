@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { motion } from 'motion/react';
-import { Users, Calendar, Megaphone, Image as ImageIcon, BarChart2, ShieldAlert, Search, Edit2, CheckCircle, Trash2, Shield, Settings, Database, Upload, Download, RefreshCw, Star, UserCheck, AlertTriangle, X, Phone, MapPin, Heart, Award, Sparkles, Lock, Grid, List, ClipboardEdit, UserPlus, UserMinus, ChevronDown } from 'lucide-react';
+import { Users, Calendar, Megaphone, Image as ImageIcon, BarChart2, ShieldAlert, Search, Edit2, CheckCircle, Trash2, Shield, Settings, Database, Upload, Download, RefreshCw, Star, UserCheck, AlertTriangle, X, Phone, MapPin, Heart, Award, Sparkles, Lock, Grid, List, ClipboardEdit, UserPlus, UserMinus, ChevronDown, Copy } from 'lucide-react';
 import { QRCodeCanvas } from 'qrcode.react';
 import html2canvasSafe from '../services/html2canvasSafe';
 import jsPDF from 'jspdf';
@@ -157,11 +157,6 @@ export default function AdminPortal({ adminUser, onLogout }: AdminPortalProps) {
     message: string;
     onConfirm: () => void;
   } | null>(null);
-
-  const [duplicateDialog, setDuplicateDialog] = useState<{
-    isOpen: boolean;
-    session: AttendanceSession | null;
-  }>({ isOpen: false, session: null });
 
   // Settings tab state
   const [settingsRegOpen, setSettingsRegOpen] = useState<boolean>(true);
@@ -1994,8 +1989,8 @@ export default function AdminPortal({ adminUser, onLogout }: AdminPortalProps) {
                           const appTodayDate = getLocalDateString();
                           const isActiveNow = s.isActive && s.date === appTodayDate;
                           
-                          // Logging for debugging the stale session issue
-                          console.log(`[BADGE-CHECK] Session: "${s.title}" (${s.date}) | App Today: ${appTodayDate} | is marked active in db: ${s.isActive} | SHOW ACTIVE NOW BADGE: ${isActiveNow}`);
+                          const isDuplicate = s.id.includes('_dup_');
+                          const duplicateCount = sessions.filter(x => x.id.startsWith(s.id + '_dup_')).length;
 
                           return (
                             <div
@@ -2014,9 +2009,9 @@ export default function AdminPortal({ adminUser, onLogout }: AdminPortalProps) {
                                       ACTIVE NOW
                                     </span>
                                   )}
-                                  {!s.duplicateOf && sessions.filter(dup => dup.duplicateOf === s.id).length > 0 && (
-                                    <span className="bg-[#800000] text-white text-[9px] font-bold px-2 py-0.5 rounded-full">
-                                      Duplicated: x{sessions.filter(dup => dup.duplicateOf === s.id).length}
+                                  {duplicateCount > 0 && (
+                                    <span className="bg-purple-100 text-purple-800 text-[9px] font-bold px-2 py-0.5 rounded-full">
+                                      Duplicated: x{duplicateCount}
                                     </span>
                                   )}
                                 </div>
@@ -2032,13 +2027,12 @@ export default function AdminPortal({ adminUser, onLogout }: AdminPortalProps) {
                                     <>{count} Members Present</>
                                   )}
                                 </span>
-                                {!s.duplicateOf && (
+                                {s.type === 'Practice' && (
                                   <button
-                                    onClick={() => setDuplicateDialog({ isOpen: true, session: s })}
+                                    onClick={() => setViewingPracticeSessionRecords(s)}
                                     className="bg-amber-50 hover:bg-amber-100 text-[#800000] border border-[#D4AF37]/30 text-xs font-bold py-1.5 px-3 rounded-lg transition-all cursor-pointer shadow-sm flex items-center gap-1"
-                                    title="Duplicate Session for Extra Credit"
                                   >
-                                    Duplicate Session
+                                    View
                                   </button>
                                 )}
                                 <button
@@ -2047,12 +2041,40 @@ export default function AdminPortal({ adminUser, onLogout }: AdminPortalProps) {
                                 >
                                   Generate Report
                                 </button>
+                                
+                                {!isDuplicate && count > 0 && (
+                                  <button
+                                    onClick={() => {
+                                      setConfirmDialog({
+                                        isOpen: true,
+                                        title: 'Duplicate Session',
+                                        message: `This will create an additional session record for ${s.date} with the same present members. This counts as an extra session toward the total, and present members will get an extra attendance credit.\n\nContinue?`,
+                                        onConfirm: async () => {
+                                          setConfirmDialog(null);
+                                          const res = await store.duplicateSession(s.id, currentUser.name);
+                                          if (res.success) {
+                                            loadData();
+                                          } else {
+                                            alert(res.error || 'Failed to duplicate session');
+                                          }
+                                        }
+                                      });
+                                    }}
+                                    className="bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200/50 text-xs font-bold py-1.5 px-3 rounded-lg transition-all cursor-pointer shadow-sm flex items-center gap-1"
+                                  >
+                                    <Copy size={14} />
+                                    Duplicate Session
+                                  </button>
+                                )}
+
                                 <button
                                   onClick={() => {
                                     setConfirmDialog({
                                       isOpen: true,
                                       title: 'Delete Attendance Session',
-                                      message: `⚠️ CRITICAL WARNING: Are you sure you want to permanently delete the attendance session "${s.title}" on ${s.date}? This action is irreversible and will delete all associated attendance scans.`,
+                                      message: duplicateCount > 0 
+                                        ? `⚠️ WARNING: This session has ${duplicateCount} duplicate(s). Deleting this original session will NOT delete the duplicates automatically. Delete anyway?`
+                                        : `⚠️ CRITICAL WARNING: Are you sure you want to permanently delete the attendance session "${s.title}" on ${s.date}? This action is irreversible and will delete all associated attendance scans.`,
                                       onConfirm: () => {
                                         store.deleteSession(s.id);
                                         setConfirmDialog(null);
@@ -4367,67 +4389,7 @@ ON CONFLICT (key) DO NOTHING;`}</pre>
           </motion.div>
         </div>
       )}
-
-      {/* DUPLICATE SESSION MODAL */}
-      <AnimatePresence>
-        {duplicateDialog.isOpen && duplicateDialog.session && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              className="absolute inset-0 bg-neutral-900/40 backdrop-blur-sm"
-              onClick={() => setDuplicateDialog({ isOpen: false, session: null })}
-            />
-            
-            <motion.div
-              initial={{ opacity: 0, scale: 0.95, y: 10 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.95, y: 10 }}
-              className="relative bg-white w-full max-w-sm rounded-2xl shadow-xl overflow-hidden"
-            >
-              <div className="p-5">
-                <div className="flex items-start gap-3">
-                  <div className="w-10 h-10 rounded-full bg-amber-100 flex items-center justify-center shrink-0">
-                    <span className="text-xl">🖨️</span>
-                  </div>
-                  <div>
-                    <h3 className="font-black text-sm text-neutral-800">Duplicate Session</h3>
-                    <p className="text-[11px] text-neutral-500 mt-1 leading-relaxed">
-                      This will create an additional session record for <b>{duplicateDialog.session.date}</b> with the same present members. 
-                      This counts as an extra session toward the total, and present members will get an extra attendance credit.
-                    </p>
-                  </div>
-                </div>
-
-                <div className="mt-5 grid grid-cols-2 gap-2">
-                  <button
-                    onClick={() => setDuplicateDialog({ isOpen: false, session: null })}
-                    className="py-2.5 text-xs font-bold text-neutral-600 bg-neutral-100 hover:bg-neutral-200 rounded-xl transition-all"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    onClick={async () => {
-                      const adminName = 'Admin'; // Usually currentUser.name, using 'Admin' for generic overrides
-                      const res = await store.duplicateSession(duplicateDialog.session!.id, adminName);
-                      if (!res.success) {
-                        alert(res.error);
-                      } else {
-                        loadData();
-                      }
-                      setDuplicateDialog({ isOpen: false, session: null });
-                    }}
-                    className="py-2.5 text-xs font-bold text-white bg-[#800000] hover:bg-[#6e0614] rounded-xl transition-all shadow-sm"
-                  >
-                    Continue
-                  </button>
-                </div>
-              </div>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
     </div>
   );
 }
+

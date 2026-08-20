@@ -47,8 +47,6 @@ export interface AttendanceSession {
    *  e.g. set to 2 for a session that counts double, 0.5 for half-credit.
    *  Legacy sessions without this field are treated as weight 1. */
   weight?: number;
-  duplicateOf?: string;
-  duplicateIndex?: number;
 }
 
 export interface AttendanceRecord {
