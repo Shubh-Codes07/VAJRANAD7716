@@ -195,34 +195,29 @@ export default function MemberHome({ currentUser, onLogout, onUpdateUser }: Memb
     return { isExpired, timeLeftStr };
   };
 
-  // Compute stats for current member
-  const rawRecords = records.filter(r => r.memberId === currentUser.id);
-  // Safely deduplicate by sessionId in case of DB duplicates (e.g. from admin overrides)
-  const uniqueSessionIds = new Set<string>();
-  const myRecords = rawRecords.filter(r => {
-    if (uniqueSessionIds.has(r.sessionId)) return false;
-    uniqueSessionIds.add(r.sessionId);
-    return true;
-  });
+  // Compute stats using the shared logic (same as Admin Portal)
+  const stats = store.getMemberAttendanceStats(currentUser.id);
   
-  const practiceCount = myRecords.filter(r => r.type === 'Practice').length;
-  const performanceCount = myRecords.filter(r => r.type === 'Performance').length;
-  const meetingCount = myRecords.filter(r => r.type === 'Meeting').length;
-  const totalAttendance = myRecords.length;
-  
-  const attendancePercentage = sessions.length > 0 
-    ? Math.round((totalAttendance / sessions.length) * 100) 
-    : 0;
+  const totalHeld = stats.practiceHeld + stats.performanceHeld + stats.meetingHeld;
+  const totalAttended = stats.practiceAttended + stats.performanceAttended + stats.meetingAttended;
+  const attendancePercentage = Math.round(stats.overallPct);
 
-  // Calculate missed counts
-  const practiceSessions = sessions.filter(s => s.type === 'Practice');
-  const performanceSessions = sessions.filter(s => s.type === 'Performance');
-  const meetingSessions = sessions.filter(s => s.type === 'Meeting');
-
-  const practicesMissed = practiceSessions.filter(s => !records.some(r => r.memberId === currentUser.id && r.sessionId === s.id)).length;
-  const performancesMissed = performanceSessions.filter(s => !records.some(r => r.memberId === currentUser.id && r.sessionId === s.id)).length;
-  const meetingsMissed = meetingSessions.filter(s => !records.some(r => r.memberId === currentUser.id && r.sessionId === s.id)).length;
+  // Missing counts
+  const practicesMissed = stats.practiceHeld - stats.practiceAttended;
+  const performancesMissed = stats.performanceHeld - stats.performanceAttended;
+  const meetingsMissed = stats.meetingHeld - stats.meetingAttended;
   const totalMissed = practicesMissed + performancesMissed + meetingsMissed;
+
+  // De-duplicate sessions by (type, date) for the calendar, exactly as stats does
+  const uniqueSessions = sessions.filter((s, index, self) =>
+    index === self.findIndex((t) => t.type === s.type && t.date === s.date)
+  );
+
+  // For Last Attendance and Calendar lookups
+  const rawRecords = records.filter(r => r.memberId === currentUser.id);
+  const myRecords = rawRecords.filter((r, index, self) => 
+    index === self.findIndex(t => t.sessionId === r.sessionId)
+  );
 
   const renderMissedSessionsWidget = () => (
     <div className="bg-[#800000]/5 border-2 border-[#800000]/20 p-4 rounded-[24px] shadow-xs text-left animate-in fade-in duration-200 my-4">
@@ -881,7 +876,7 @@ export default function MemberHome({ currentUser, onLogout, onUpdateUser }: Memb
                   </div>
                   <div className="bg-white border border-[#D4AF37]/20 p-4 rounded-2xl shadow-sm text-center">
                     <span className="text-[10px] text-neutral-400 font-bold uppercase tracking-wider block">Total Attendance</span>
-                    <span className="text-2xl font-black text-neutral-800">{totalAttendance} / {sessions.length}</span>
+                    <span className="text-2xl font-black text-neutral-800">{totalAttended} / {totalHeld}</span>
                   </div>
                 </div>
 
@@ -889,15 +884,15 @@ export default function MemberHome({ currentUser, onLogout, onUpdateUser }: Memb
                 <div className="bg-white border border-[#D4AF37]/20 rounded-2xl p-4 grid grid-cols-3 gap-2 text-center text-xs font-bold">
                   <div>
                     <span className="text-[9px] text-neutral-400 block uppercase">Practice</span>
-                    <span className="text-neutral-800">{practiceCount} Present</span>
+                    <span className="text-neutral-800">{stats.practiceAttended} Present</span>
                   </div>
                   <div className="border-x border-neutral-100">
                     <span className="text-[9px] text-neutral-400 block uppercase">Performance</span>
-                    <span className="text-neutral-800">{performanceCount} Present</span>
+                    <span className="text-neutral-800">{stats.performanceAttended} Present</span>
                   </div>
                   <div>
                     <span className="text-[9px] text-neutral-400 block uppercase">Meeting</span>
-                    <span className="text-neutral-800">{meetingCount} Present</span>
+                    <span className="text-neutral-800">{stats.meetingAttended} Present</span>
                   </div>
                 </div>
 
@@ -909,10 +904,10 @@ export default function MemberHome({ currentUser, onLogout, onUpdateUser }: Memb
                     Attendance Calendar
                   </h4>
                   <div className="flex flex-wrap gap-2.5">
-                    {sessions.length === 0 ? (
+                    {uniqueSessions.length === 0 ? (
                       <p className="text-xs text-neutral-400 italic">No scheduled sessions to log.</p>
                     ) : (
-                      sessions.map((s) => {
+                      uniqueSessions.map((s) => {
                         const isPresent = myRecords.some(r => r.sessionId === s.id);
                         return (
                           <div
