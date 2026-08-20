@@ -1754,7 +1754,8 @@ export default function AdminPortal({ adminUser, onLogout }: AdminPortalProps) {
                           {[...sessions]
                             .sort((a, b) => b.date.localeCompare(a.date))
                             .map(s => {
-                              const count = records.filter(r => r.sessionId === s.id).length;
+                              const recsForSession = records.filter(r => r.sessionId === s.id);
+                              const count = new Set(recsForSession.map(r => r.memberId)).size;
                               const typeIcon = s.type === 'Practice' ? '🥁' : s.type === 'Performance' ? '🎺' : '📋';
                               return (
                                 <option key={s.id} value={s.id}>
@@ -1983,7 +1984,8 @@ export default function AdminPortal({ adminUser, onLogout }: AdminPortalProps) {
                         <p className="text-xs text-neutral-400 italic text-center py-8">No attendance sessions registered.</p>
                       ) : (
                         sessions.map((s) => {
-                          const count = records.filter(r => r.sessionId === s.id).length;
+                          const recsForSession = records.filter(r => r.sessionId === s.id);
+                          const count = new Set(recsForSession.map(r => r.memberId)).size;
                           const appTodayDate = getLocalDateString();
                           const isActiveNow = s.isActive && s.date === appTodayDate;
                           

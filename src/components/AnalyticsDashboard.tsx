@@ -158,12 +158,13 @@ export default function AnalyticsDashboard({ members, sessions, records }: Analy
     // Sort sessions chronologically
     const sorted = [...sessions].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
     return sorted.map(s => {
-      const recs = records.filter(r => r.sessionId === s.id).length;
-      const percent = totalMembers ? Math.round((recs / totalMembers) * 100) : 0;
+      const recsForSession = records.filter(r => r.sessionId === s.id);
+      const uniqueMembersCount = new Set(recsForSession.map(r => r.memberId)).size;
+      const percent = totalMembers ? Math.round((uniqueMembersCount / totalMembers) * 100) : 0;
       return {
         date: s.date.substring(5), // MM-DD
         title: s.title.substring(0, 10) + '...',
-        'Present Count': recs,
+        'Present Count': uniqueMembersCount,
         'Attendance %': percent
       };
     });
@@ -181,7 +182,11 @@ export default function AnalyticsDashboard({ members, sessions, records }: Analy
       
       // Find session on this day
       const sessionToday = sessions.find(s => s.date === dateStr);
-      const recsToday = sessionToday ? records.filter(r => r.sessionId === sessionToday.id).length : 0;
+      let recsToday = 0;
+      if (sessionToday) {
+        const recsForSession = records.filter(r => r.sessionId === sessionToday.id);
+        recsToday = new Set(recsForSession.map(r => r.memberId)).size;
+      }
       const ratio = totalMembers ? recsToday / totalMembers : 0;
 
       list.push({

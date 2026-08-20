@@ -1150,11 +1150,23 @@ class VajranadStore {
       }
     }
 
-    // Check for existing record (duplicate prevention)
+    // Check for existing record locally first
     const localRecords = this.getAttendanceRecords();
-    const existingRecord = localRecords.find(
+    let existingRecord = localRecords.find(
       r => r.memberId === memberId && r.sessionId === sessionId
     );
+
+    // Also check Supabase directly (cross-device source of truth)
+    if (!existingRecord) {
+      console.log(`[ADMIN OVERRIDE] Checking Supabase for existing ${session.type} record for ${member.name} on ${session.date}...`);
+      const supabaseDuplicate = await checkDuplicateRecordInSupabase(member.id, session.date, session.type);
+      if (supabaseDuplicate) {
+        existingRecord = supabaseDuplicate;
+        // Sync it into local cache
+        localRecords.push(supabaseDuplicate);
+        localStorage.setItem(this.recordsKey, JSON.stringify(localRecords));
+      }
+    }
 
     if (existingRecord) {
       console.log(`[ADMIN OVERRIDE] ℹ Already present: ${member.name} was already marked present for "${session.title}" (${session.type}) on ${session.date} at ${existingRecord.scanTime} by ${existingRecord.scannedBy}. No duplicate created.`);

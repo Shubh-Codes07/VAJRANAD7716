@@ -196,7 +196,14 @@ export default function MemberHome({ currentUser, onLogout, onUpdateUser }: Memb
   };
 
   // Compute stats for current member
-  const myRecords = records.filter(r => r.memberId === currentUser.id);
+  const rawRecords = records.filter(r => r.memberId === currentUser.id);
+  // Safely deduplicate by sessionId in case of DB duplicates (e.g. from admin overrides)
+  const uniqueSessionIds = new Set<string>();
+  const myRecords = rawRecords.filter(r => {
+    if (uniqueSessionIds.has(r.sessionId)) return false;
+    uniqueSessionIds.add(r.sessionId);
+    return true;
+  });
   
   const practiceCount = myRecords.filter(r => r.type === 'Practice').length;
   const performanceCount = myRecords.filter(r => r.type === 'Performance').length;
