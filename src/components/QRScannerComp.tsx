@@ -22,7 +22,6 @@ export default function QRScannerComp({ currentUser, onScanComplete }: QRScanner
   const [activeSession, setActiveSession] = useState<AttendanceSession | null>(null);
   const [scannerActive, setScannerActive] = useState(false);
   const [showTypeSelectorModal, setShowTypeSelectorModal] = useState(false);
-  const [sessionWeight, setSessionWeight] = useState<number>(1); // Weight for the next session
   
   const [scanResult, setScanResult] = useState<{
     success: boolean;
@@ -174,14 +173,13 @@ export default function QRScannerComp({ currentUser, onScanComplete }: QRScanner
       title = `Maintenance & Meeting - ${dateStr} (${dayStr})`;
     }
 
-    const weight = typeof sessionWeight === 'number' && sessionWeight > 0 ? sessionWeight : 1;
+    const weight = 1; // Session weight is always 1 (UI selector removed)
     console.log(`[QR SCANNER] Starting/joining ${type} session with weight=${weight}...`);
     const session = await store.createOrJoinSession(type, title, currentUser.name, weight);
     console.log(`[QR SCANNER] Session ready: id=${session.id}, weight=${session.weight ?? 1}, createdBy=${session.createdBy}`);
     setActiveSession(session);
     setScannerActive(true);
     setShowTypeSelectorModal(false);
-    setSessionWeight(1); // reset for next time
   };
 
   // Process any scanned/decoded QR text
@@ -561,47 +559,6 @@ export default function QRScannerComp({ currentUser, onScanComplete }: QRScanner
                   </button>
                 </div>
 
-                  {/* Weight input */}
-                  <div className="mt-2 bg-white border border-neutral-200 rounded-2xl p-4 shadow-xs">
-                    <div className="flex items-center justify-between mb-2">
-                      <div>
-                        <p className="text-xs font-extrabold text-neutral-700">Session Weight</p>
-                        <p className="text-[10px] text-neutral-400 leading-tight mt-0.5">
-                          Scales how much this session counts toward attendance&nbsp;%.<br />
-                          e.g. 2&nbsp;= double credit &nbsp;|&nbsp; 0.5&nbsp;= half credit &nbsp;|&nbsp; 1&nbsp;= normal
-                        </p>
-                      </div>
-                      <input
-                        id="session-weight-input"
-                        type="number"
-                        min={0.1}
-                        step={0.1}
-                        value={sessionWeight}
-                        onChange={(e) => {
-                          const val = parseFloat(e.target.value);
-                          if (!isNaN(val) && val > 0) setSessionWeight(val);
-                        }}
-                        className="w-20 text-center bg-[#FAF6EE] border-2 border-[#D4AF37]/50 focus:border-[#800000] rounded-xl text-sm font-black text-[#800000] px-2 py-1.5 outline-none transition-colors"
-                      />
-                    </div>
-                    {/* Quick preset buttons */}
-                    <div className="flex gap-2 mt-1">
-                      {[0.5, 1, 1.5, 2].map((preset) => (
-                        <button
-                          key={preset}
-                          type="button"
-                          onClick={() => setSessionWeight(preset)}
-                          className={`flex-1 text-[10px] font-bold py-1 rounded-lg border transition-all cursor-pointer ${
-                            sessionWeight === preset
-                              ? 'bg-[#800000] text-[#D4AF37] border-[#800000]'
-                              : 'bg-neutral-100 text-neutral-600 border-neutral-200 hover:border-[#D4AF37]'
-                          }`}
-                        >
-                          ×{preset}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
 
                 <button
                   type="button"
