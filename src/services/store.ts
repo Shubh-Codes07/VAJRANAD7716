@@ -1041,14 +1041,20 @@ class VajranadStore {
       if (seenSessionIds.has(r.sessionId)) continue;
       seenSessionIds.add(r.sessionId);
 
-      // Find the matching session for its weight
+      // Find the matching session for its weight and type
       const matchedSession = countedSessions.find(s => s.id === r.sessionId);
-      const w = matchedSession && typeof matchedSession.weight === 'number' && matchedSession.weight > 0
+      
+      // CRITICAL FIX: If the session no longer exists (orphaned record) or isn't in countedSessions,
+      // do not count it. This ensures attended <= held always.
+      if (!matchedSession) continue;
+
+      const w = typeof matchedSession.weight === 'number' && matchedSession.weight > 0
         ? matchedSession.weight
         : 1;
 
-      if (r.type === 'Practice')         { practiceWeightAttended     += w; practiceAttended++;     }
-      else if (r.type === 'Performance') { performanceWeightAttended  += w; performanceAttended++;  }
+      // Use the actual session type as the source of truth, not the record type
+      if (matchedSession.type === 'Practice')         { practiceWeightAttended     += w; practiceAttended++;     }
+      else if (matchedSession.type === 'Performance') { performanceWeightAttended  += w; performanceAttended++;  }
     }
 
     // ── Percentage calculations ────────────────────────────────────────────────
