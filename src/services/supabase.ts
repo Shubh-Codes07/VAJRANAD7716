@@ -271,16 +271,53 @@ export async function deleteSessionFromSupabase(id: string): Promise<void> {
   else console.log(`[SUPABASE DELETE] ✓ Session ${id} deleted.`);
 }
 
+/**
+ * Fetches ALL rows from the `sessions` table using range-based pagination.
+ * Supabase's PostgREST defaults to a 1000-row page limit; without explicit
+ * pagination any table with >1000 rows will silently return a truncated result.
+ * This function loops in 1000-row pages until all rows are retrieved.
+ */
 export async function getAllSessionsFromSupabase(): Promise<AttendanceSession[]> {
-  console.log('[SUPABASE READ] Fetching all sessions...');
-  const { data, error } = await supabase.from('sessions').select('*').order('date', { ascending: false });
-  if (error) { console.error('[SUPABASE READ] ✗ Sessions:', error.message); return []; }
-  const rows = (data ?? []).map((r: any): AttendanceSession => ({
+  const PAGE_SIZE = 1000;
+  let allRows: any[] = [];
+  let from = 0;
+
+  // Fetch exact total count in parallel with the first page
+  const { count: totalCount } = await supabase
+    .from('sessions')
+    .select('*', { count: 'exact', head: true });
+
+  console.log(`[SUPABASE READ] sessions — total rows in DB: ${totalCount ?? 'unknown'}. Fetching all pages (page size ${PAGE_SIZE})...`);
+
+  while (true) {
+    const { data, error } = await supabase
+      .from('sessions')
+      .select('*')
+      .order('date', { ascending: false })
+      .range(from, from + PAGE_SIZE - 1);
+
+    if (error) {
+      console.error(`[SUPABASE READ] ✗ Sessions page starting at ${from}:`, error.message);
+      break;
+    }
+
+    const page = data ?? [];
+    allRows = allRows.concat(page);
+
+    if (page.length < PAGE_SIZE) break; // last page reached
+    from += PAGE_SIZE;
+  }
+
+  const rows = allRows.map((r: any): AttendanceSession => ({
     id: r.id, type: r.type, title: r.title, date: r.date,
     day: r.day, isActive: r.is_active, createdBy: r.created_by,
-    weight: typeof r.weight === 'number' ? r.weight : 1, // fallback for legacy rows
+    weight: typeof r.weight === 'number' ? r.weight : 1,
   }));
-  console.log(`[SUPABASE READ] ✓ Fetched ${rows.length} session(s).`);
+
+  console.log(`[SUPABASE READ] ✓ Sessions — fetched ${rows.length} / ${totalCount ?? '?'} total row(s) from Supabase.`);
+  if (totalCount !== null && rows.length < totalCount) {
+    console.warn(`[SUPABASE READ] ⚠ Sessions: fetched ${rows.length} but DB has ${totalCount} — some rows may still be missing!`);
+  }
   return rows;
 }
 
@@ -363,16 +400,61 @@ export async function checkDuplicateRecordInSupabase(
   return null;
 }
 
+/**
+ * Fetches ALL rows from the `records` table using range-based pagination.
+ *
+ * ROOT CAUSE OF "0 Members Present" ON OLDER SESSIONS:
+ * Supabase's PostgREST has a hard default page limit of 1000 rows.
+ * A plain `.select('*')` with no `.range()` silently truncates results at
+ * 1000 rows. With 1,504+ records ordered by date DESC, only the most recent
+ * ~1000 records are returned — all records for older sessions are cut off,
+ * so their count appears as 0 in the UI even though the data exists in Supabase.
+ *
+ * Fix: loop with `.range(from, from + PAGE_SIZE - 1)` until the page returns
+ * fewer rows than PAGE_SIZE, meaning we have reached the last page.
+ */
 export async function getAllRecordsFromSupabase(): Promise<AttendanceRecord[]> {
-  console.log('[SUPABASE READ] Fetching all records...');
-  const { data, error } = await supabase.from('records').select('*').order('date', { ascending: false });
-  if (error) { console.error('[SUPABASE READ] ✗ Records:', error.message); return []; }
-  const rows = (data ?? []).map((r: any): AttendanceRecord => ({
+  const PAGE_SIZE = 1000;
+  let allRows: any[] = [];
+  let from = 0;
+
+  // Fetch exact total count in parallel with the first page so we can log
+  // fetched vs total and immediately surface any remaining truncation.
+  const { count: totalCount } = await supabase
+    .from('records')
+    .select('*', { count: 'exact', head: true });
+
+  console.log(`[SUPABASE READ] records — total rows in DB: ${totalCount ?? 'unknown'}. Fetching all pages (page size ${PAGE_SIZE})...`);
+
+  while (true) {
+    const { data, error } = await supabase
+      .from('records')
+      .select('*')
+      .order('date', { ascending: false })
+      .range(from, from + PAGE_SIZE - 1);
+
+    if (error) {
+      console.error(`[SUPABASE READ] ✗ Records page starting at ${from}:`, error.message);
+      break;
+    }
+
+    const page = data ?? [];
+    allRows = allRows.concat(page);
+
+    if (page.length < PAGE_SIZE) break; // last page — stop looping
+    from += PAGE_SIZE;
+  }
+
+  const rows = allRows.map((r: any): AttendanceRecord => ({
     id: r.id, sessionId: r.session_id, memberId: r.member_id,
     memberName: r.member_name, instrument: r.instrument,
     scanTime: r.scan_time, scannedBy: r.scanned_by, type: r.type, date: r.date,
   }));
-  console.log(`[SUPABASE READ] ✓ Fetched ${rows.length} record(s).`);
+
+  console.log(`[SUPABASE READ] ✓ Records — fetched ${rows.length} / ${totalCount ?? '?'} total row(s) from Supabase.`);
+  if (totalCount !== null && rows.length < totalCount) {
+    console.warn(`[SUPABASE READ] ⚠ Records: fetched ${rows.length} but DB has ${totalCount} — pagination may still be incomplete!`);
+  }
   return rows;
 }
 
