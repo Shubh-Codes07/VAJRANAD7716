@@ -158,6 +158,11 @@ export default function AdminPortal({ adminUser, onLogout }: AdminPortalProps) {
     onConfirm: () => void;
   } | null>(null);
 
+  const [duplicateDialog, setDuplicateDialog] = useState<{
+    isOpen: boolean;
+    session: AttendanceSession | null;
+  }>({ isOpen: false, session: null });
+
   // Settings tab state
   const [settingsRegOpen, setSettingsRegOpen] = useState<boolean>(true);
   const [isTogglingRegistration, setIsTogglingRegistration] = useState(false);
@@ -2009,6 +2014,11 @@ export default function AdminPortal({ adminUser, onLogout }: AdminPortalProps) {
                                       ACTIVE NOW
                                     </span>
                                   )}
+                                  {!s.duplicateOf && sessions.filter(dup => dup.duplicateOf === s.id).length > 0 && (
+                                    <span className="bg-[#800000] text-white text-[9px] font-bold px-2 py-0.5 rounded-full">
+                                      Duplicated: x{sessions.filter(dup => dup.duplicateOf === s.id).length}
+                                    </span>
+                                  )}
                                 </div>
                                 <h4 className="font-bold text-neutral-800 text-sm mt-1.5">{s.title}</h4>
                                 <p className="text-[10px] text-neutral-400 mt-0.5">{s.date} ({s.day}) • Created by: {s.createdBy}</p>
@@ -2022,12 +2032,13 @@ export default function AdminPortal({ adminUser, onLogout }: AdminPortalProps) {
                                     <>{count} Members Present</>
                                   )}
                                 </span>
-                                {s.type === 'Practice' && (
+                                {!s.duplicateOf && (
                                   <button
-                                    onClick={() => setViewingPracticeSessionRecords(s)}
+                                    onClick={() => setDuplicateDialog({ isOpen: true, session: s })}
                                     className="bg-amber-50 hover:bg-amber-100 text-[#800000] border border-[#D4AF37]/30 text-xs font-bold py-1.5 px-3 rounded-lg transition-all cursor-pointer shadow-sm flex items-center gap-1"
+                                    title="Duplicate Session for Extra Credit"
                                   >
-                                    View
+                                    Duplicate Session
                                   </button>
                                 )}
                                 <button
@@ -4356,7 +4367,67 @@ ON CONFLICT (key) DO NOTHING;`}</pre>
           </motion.div>
         </div>
       )}
+
+      {/* DUPLICATE SESSION MODAL */}
+      <AnimatePresence>
+        {duplicateDialog.isOpen && duplicateDialog.session && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="absolute inset-0 bg-neutral-900/40 backdrop-blur-sm"
+              onClick={() => setDuplicateDialog({ isOpen: false, session: null })}
+            />
+            
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 10 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 10 }}
+              className="relative bg-white w-full max-w-sm rounded-2xl shadow-xl overflow-hidden"
+            >
+              <div className="p-5">
+                <div className="flex items-start gap-3">
+                  <div className="w-10 h-10 rounded-full bg-amber-100 flex items-center justify-center shrink-0">
+                    <span className="text-xl">🖨️</span>
+                  </div>
+                  <div>
+                    <h3 className="font-black text-sm text-neutral-800">Duplicate Session</h3>
+                    <p className="text-[11px] text-neutral-500 mt-1 leading-relaxed">
+                      This will create an additional session record for <b>{duplicateDialog.session.date}</b> with the same present members. 
+                      This counts as an extra session toward the total, and present members will get an extra attendance credit.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="mt-5 grid grid-cols-2 gap-2">
+                  <button
+                    onClick={() => setDuplicateDialog({ isOpen: false, session: null })}
+                    className="py-2.5 text-xs font-bold text-neutral-600 bg-neutral-100 hover:bg-neutral-200 rounded-xl transition-all"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={async () => {
+                      const adminName = 'Admin'; // Usually currentUser.name, using 'Admin' for generic overrides
+                      const res = await store.duplicateSession(duplicateDialog.session!.id, adminName);
+                      if (!res.success) {
+                        alert(res.error);
+                      } else {
+                        loadData();
+                      }
+                      setDuplicateDialog({ isOpen: false, session: null });
+                    }}
+                    className="py-2.5 text-xs font-bold text-white bg-[#800000] hover:bg-[#6e0614] rounded-xl transition-all shadow-sm"
+                  >
+                    Continue
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
-

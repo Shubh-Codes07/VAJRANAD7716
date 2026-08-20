@@ -859,17 +859,95 @@ class VajranadStore {
 
   public deleteSession(id: string) {
     let sessions = this.getSessions();
-    sessions = sessions.filter(s => s.id !== id);
+    const sessionsToDelete = [id];
+    // Find all duplicates of this session to cascade delete locally
+    sessions.forEach(s => {
+      if (s.duplicateOf === id) {
+        sessionsToDelete.push(s.id);
+      }
+    });
+
+    sessions = sessions.filter(s => !sessionsToDelete.includes(s.id));
     localStorage.setItem(this.sessionsKey, JSON.stringify(sessions));
-    deleteSessionFromSupabase(id);
+    
+    sessionsToDelete.forEach(sId => deleteSessionFromSupabase(sId));
 
     // Also delete any associated attendance records from Supabase
     let records = this.getAttendanceRecords();
-    const recordsToDelete = records.filter(r => r.sessionId === id);
-    records = records.filter(r => r.sessionId !== id);
+    const recordsToDelete = records.filter(r => sessionsToDelete.includes(r.sessionId));
+    records = records.filter(r => !sessionsToDelete.includes(r.sessionId));
     localStorage.setItem(this.recordsKey, JSON.stringify(records));
     recordsToDelete.forEach(rec => deleteRecordFromSupabase(rec.id));
-    deleteRecordsBySessionFromSupabase(id); // batch delete
+    sessionsToDelete.forEach(sId => deleteRecordsBySessionFromSupabase(sId)); // batch delete
+  }
+
+  public async duplicateSession(originalSessionId: string, adminName: string): Promise<{ success: boolean; session?: AttendanceSession; error?: string }> {
+    const sessions = this.getSessions();
+    const originalSession = sessions.find(s => s.id === originalSessionId);
+    if (!originalSession) return { success: false, error: 'Original session not found.' };
+    
+    if (originalSession.duplicateOf) {
+      return { success: false, error: 'Cannot duplicate a session that is already a duplicate.' };
+    }
+
+    const duplicates = sessions.filter(s => s.duplicateOf === originalSessionId);
+    if (duplicates.length >= 3) {
+      return { success: false, error: 'Maximum of 3 duplicates reached for this session.' };
+    }
+
+    let records = this.getAttendanceRecords();
+    const originalRecords = records.filter(r => r.sessionId === originalSessionId);
+    
+    if (originalRecords.length === 0) {
+      return { success: false, error: 'Cannot duplicate an empty session. Ensure members are present first.' };
+    }
+
+    const nextIndex = duplicates.length + 1;
+    const newSessionId = 'sess_' + Math.random().toString(36).substr(2, 9);
+    
+    // Create clear title indicating duplicate status
+    const baseTitle = originalSession.title;
+    const newTitle = `${baseTitle} — Duplicate #${nextIndex} of original session`;
+
+    const newSession: AttendanceSession = {
+      ...originalSession,
+      id: newSessionId,
+      title: newTitle,
+      isActive: false, // Duplicates shouldn't be active for scanning
+      createdBy: adminName,
+      duplicateOf: originalSession.id,
+      duplicateIndex: nextIndex
+    };
+
+    sessions.push(newSession);
+    localStorage.setItem(this.sessionsKey, JSON.stringify(sessions));
+    
+    // Create new records
+    const newRecords: AttendanceRecord[] = originalRecords.map(r => ({
+      ...r,
+      id: 'rec_' + Math.random().toString(36).substr(2, 9),
+      sessionId: newSessionId,
+      scannedBy: `[DUPLICATE] ${adminName}`,
+      scanTime: new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true })
+    }));
+
+    records.push(...newRecords);
+    localStorage.setItem(this.recordsKey, JSON.stringify(records));
+
+    // Save to Supabase
+    const sessionRes = await saveSessionToSupabase(newSession);
+    if (!sessionRes.success) {
+      console.error(`[SESSION] Duplication failed in Supabase:`, sessionRes.error);
+      return { success: false, error: sessionRes.error };
+    }
+
+    // Save records sequentially to Supabase
+    for (const rec of newRecords) {
+      await saveRecordToSupabase(rec);
+    }
+
+    console.log(`[SESSION] ✓ Created duplicate session: ${newSession.id} from ${originalSession.id}`);
+    return { success: true, session: newSession };
   }
 
   public formatTo12Hour(timeStr: string): string {
